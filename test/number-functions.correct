@@ -1,0 +1,152 @@
+Sequence
+    Define add-one
+        Lambda
+            Define n
+                Variable i64
+            Add
+                Variable n
+                Integer 1
+    Assign
+        Define int
+            Variable type
+        Variable i64
+    Assign
+        Define inc
+            type cast
+                Lambda
+                    Variable int
+                    Variable int
+        (i64 -> i64) cast
+            Variable add-one
+    Call
+        Variable add-one
+        Call
+            Variable add-one
+            Integer 1
+    Add
+        Call
+            Variable inc
+            Integer 2
+        Call
+            Variable inc
+            Call
+                Variable inc
+                Integer 1
+    Define curried-add
+        Lambda
+            Define a
+                Variable i64
+            Lambda
+                Define b
+                    Variable i64
+                    Add
+                        Variable a
+                        Variable b
+    Define curried-add2
+        Lambda
+            Define a
+                Variable i64
+            Lambda
+                Define b
+                    Variable i64
+                    Add
+                        Variable a
+                        Variable b
+    Call
+        Call
+            Variable curried-add
+            Call
+                Call
+                    Variable curried-add
+                    Integer 1
+                Integer 2
+        Integer 3
+    Call
+        Call
+            Variable curried-add2
+            Call
+                Call
+                    Variable curried-add2
+                    Integer 1
+                Integer 2
+        Integer 3
+    Define diff-add
+        Lambda
+            Define a
+                Variable i16
+            Lambda
+                Define b
+                    Variable u32
+                    Add
+                        i64 cast
+                            Variable a
+                        i64 cast
+                            Variable b
+    Call
+        Call
+            Variable diff-add
+            i16 cast
+                Integer 3
+        u32 cast
+            Integer 4
+    Define dist
+        Lambda
+            Define dx
+                Variable f32
+            Lambda
+                Define dy
+                    Variable f32
+                Lambda
+                    Define dz
+                        Variable f32
+                    Add
+                        Add
+                            Multiply
+                                f64 cast
+                                    Variable dx
+                                f64 cast
+                                    Variable dx
+                            Multiply
+                                f64 cast
+                                    Variable dy
+                                f64 cast
+                                    Variable dy
+                        Multiply
+                            f64 cast
+                                Variable dz
+                            f64 cast
+                                Variable dz
+    Call
+        Call
+            Call
+                Variable dist
+                f32 cast
+                    Float 1.0
+            f32 cast
+                Float 2.0
+        f32 cast
+            Float 3.0
+    Assign
+        Define factorial
+            type cast
+                Lambda
+                    Variable int
+                    Variable int
+        (i64 -> i64) cast
+            Intersect
+                Lambda
+                    Integer 0
+                    Integer 1
+                Lambda
+                    Define n
+                        Variable int
+                    Multiply
+                        Call
+                            Variable factorial
+                            Subtract
+                                Variable n
+                                Integer 1
+                        Variable n
+    Call
+        Variable factorial
+        Integer 40

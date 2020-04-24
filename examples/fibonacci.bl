@@ -1,0 +1,7 @@
+define fib = {
+    0 -> 0
+    & 1 -> 1
+    & (i64 n) -> (n - 1 fib) + (n - 2 fib)
+}
+
+fib 40

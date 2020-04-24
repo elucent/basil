@@ -1,0 +1,14 @@
+define println = (meta text) -> {
+    print eval text
+    print "\n"
+}
+
+define if = (meta cond) -> (meta body) -> {
+    (1 -> eval body; 1) & (0 -> 0) (eval cond)
+}
+
+define else = (meta body) -> {
+    (0 -> eval body; 1) & (1 -> 1)
+}
+
+if (1): 1

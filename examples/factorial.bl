@@ -1,0 +1,6 @@
+define factorial = & {
+    0 -> 1
+    i64 n -> n - 1 factorial * n
+}
+
+10 factorial

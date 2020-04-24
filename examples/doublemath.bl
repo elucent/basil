@@ -1,0 +1,4 @@
+define let define
+let x = 1.0 + 2.0 + 3.0
+let y = x * x
+let z = y - x * 10

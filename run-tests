@@ -1,0 +1,16 @@
+if test -f test/*.out; then
+    rm test/*.out
+fi
+
+for f in test/*.bl; do
+    c="${f%.bl}.correct"
+    o="${f%.bl}.out"
+    ./basil $f > $o
+    diff -I '#.*' -Bb $o $c > /dev/null
+    if [ $? == 1 ]; then
+        echo "Files $o and $c differ."
+    else 
+        echo "Test '${f%.bl}' passed"
+        rm $o
+    fi
+done

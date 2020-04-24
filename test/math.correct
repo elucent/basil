@@ -1,0 +1,45 @@
+Sequence
+    Add
+        Integer 1
+        Integer 2
+    Add
+        f64 cast
+            Integer 1
+        Float 2.0
+    Add
+        Float 1.0
+        f64 cast
+            Integer 2
+    Add
+        Float 1.0
+        Float 2.0
+    Multiply
+        Subtract
+            Multiply
+                Multiply
+                    Float 30.0
+                    f64 cast
+                        Integer 4
+                f64 cast
+                    Integer 5
+            f64 cast
+                Integer 10
+        f64 cast
+            Integer 6
+    Multiply
+        Subtract
+            Integer 1
+            Integer 2
+        Divide
+            Integer 2
+            Integer 3
+    Multiply
+        Add
+            Integer 3
+            Integer 2
+        Integer 1
+    Add
+        Divide
+            Integer 1
+            Integer 2
+        Integer 3

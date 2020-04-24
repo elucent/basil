@@ -1,0 +1,1 @@
+run("rm src/*.o *.o basil")

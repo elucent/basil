@@ -1,0 +1,7 @@
+basil
+*.o
+.vscode
+*~
+notes*
+hidden
+test/*.out

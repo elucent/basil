@@ -1,0 +1,6 @@
+define print-times = & {
+    1 -> print "hello world!\n"
+    i64 n -> print-times(n - 1); print "hello world!\n"
+}
+
+print-times 10
