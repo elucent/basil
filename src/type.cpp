@@ -4,6 +4,8 @@
 namespace basil {
     map<ustring, const Type*> typemap;
 
+    // TypeClass
+
     TypeClass::TypeClass(): _parent(nullptr) {
         //
     }
@@ -53,6 +55,8 @@ namespace basil {
         print(io, _key);
     }
 
+    // NumericType
+
     const TypeClass NumericType::CLASS(Type::CLASS);
 
     NumericType::NumericType(u32 size, bool floating, bool sign, 
@@ -91,6 +95,8 @@ namespace basil {
         return other->is<NumericType>() &&
             (_floating ? other->as<NumericType>()->_floating : true);
     }
+
+    // TupleType
 
     const TypeClass TupleType::CLASS(Type::CLASS);
 
@@ -165,6 +171,135 @@ namespace basil {
         }
         print(io, ")");
     }
+        
+    // BlockType
+
+    const TypeClass BlockType::CLASS(Type::CLASS);
+
+    BlockType::BlockType(const vector<const Type*>& members,
+                const TypeClass* tc): 
+        Type("", 0, tc), _members(members) {
+        _key += "[T";
+        for (const Type* t : members) {
+            _key += " ", _key += t->key();
+        }
+        _key += "]";
+    }
+                
+    const vector<const Type*>& BlockType::members() const {
+        return _members;
+    }
+    
+    const Type* BlockType::member(u32 i) const {
+        return _members[i];
+    }
+    
+    u32 BlockType::count() const {
+        return _members.size();
+    }
+    
+    bool BlockType::implicitly(const Type* other) const {
+        if (Type::implicitly(other)) return true;
+        if (!other->is<BlockType>()) return false;
+
+        const BlockType* tt = other->as<BlockType>();
+        if (tt->_members.size() != _members.size()) return false;
+
+        for (u32 i = 0; i < _members.size(); ++ i) {
+            if (!_members[i]->implicitly(tt->_members[i])) return false;
+        }
+
+        return true;
+    }
+    
+    bool BlockType::explicitly(const Type* other) const {
+        if (Type::implicitly(other)) return true;
+
+        if (other == TYPE) {
+            bool anyNonType = false;
+            for (const Type* t : _members) if (t != TYPE) anyNonType = true;
+            if (!anyNonType) return true;
+        }
+
+        if (!other->is<BlockType>()) return false;
+
+        const BlockType* tt = other->as<BlockType>();
+        if (tt->_members.size() != _members.size()) return false;
+
+        for (u32 i = 0; i < _members.size(); ++ i) {
+            if (!_members[i]->explicitly(tt->_members[i])) return false;
+        }
+
+        return true;
+    }
+    
+    void BlockType::format(stream& io) const {
+        print(io, "[");
+        bool first = true;
+        for (const Type* t : _members) {
+            if (!first) print(io, ", ");
+            first = false;
+            t->format(io);
+        }
+        print(io, "]");
+    }
+
+    // ArrayType
+
+    const TypeClass ArrayType::CLASS(Type::CLASS);
+
+    ArrayType::ArrayType(const Type* element, u32 size,
+                const TypeClass* tc): 
+        Type("", 0, tc), _element(element), _count(size) {
+        _size = _element->size() * _count;
+        buffer b;
+        fprint(b, _element->key(), "[", _count, "]");
+        fread(b, _key);
+    }
+                
+    const Type* ArrayType::element() const {
+        return _element;
+    }
+    
+    u32 ArrayType::count() const {
+        return _count;
+    }
+    
+    bool ArrayType::implicitly(const Type* other) const {
+        if (Type::implicitly(other)) return true;
+        if (other->is<TupleType>()) {
+            const TupleType* tt = other->as<TupleType>();
+            for (const Type* t : tt->members()) {
+                if (!_element->implicitly(t)) return false;
+            }
+            return _count == tt->count();
+        }
+        if (!other->is<ArrayType>()) return false;
+
+        const ArrayType* at = other->as<ArrayType>();
+        return _element->implicitly(at->element()) && _count == at->count();   
+    }
+    
+    bool ArrayType::explicitly(const Type* other) const {
+        if (Type::implicitly(other)) return true;
+        if (other->is<TupleType>()) {
+            const TupleType* tt = other->as<TupleType>();
+            for (const Type* t : tt->members()) {
+                if (!_element->explicitly(t)) return false;
+            }
+            return _count == tt->count();
+        }
+        if (!other->is<ArrayType>()) return false;
+
+        const ArrayType* at = other->as<ArrayType>();
+        return _element->explicitly(at->element()) && _count == at->count();   
+    }
+    
+    void ArrayType::format(stream& io) const {
+        print(io, _element, "[", _count, "]");
+    }
+
+    // UnionType
 
     const TypeClass UnionType::CLASS(Type::CLASS);
 
@@ -212,6 +347,8 @@ namespace basil {
         }
         print(io, ")");
     }
+
+    // IntersectionType
 
     const TypeClass IntersectionType::CLASS(Type::CLASS);
 
@@ -303,6 +440,35 @@ namespace basil {
 
     void ListType::format(stream& io) const {
         print(io, "[", _element, "]");
+    }
+    
+    // ReferenceType
+    
+    const TypeClass ReferenceType::CLASS(Type::CLASS);
+
+    ReferenceType::ReferenceType(const Type* element, const TypeClass* tc):
+        Type("", 8, tc), _element(element) {
+        _key += "[R ";
+        _key += element->key();
+        _key += "]";
+    }
+
+    const Type* ReferenceType::element() const {
+        return _element;
+    }
+
+    bool ReferenceType::implicitly(const Type* other) const {
+        if (Type::implicitly(other)) return true;
+        return other == _element || other == this;
+    }
+
+    bool ReferenceType::explicitly(const Type* other) const {
+        if (other == TYPE) return _element == TYPE;
+        return implicitly(other); // todo: consider reification?
+    }
+
+    void ReferenceType::format(stream& io) const {
+        print(io, "~", _element);
     }
 
     // EmptyType
@@ -407,6 +573,7 @@ namespace basil {
                                const TypeClass* tc):
         Type("", 0, tc), _arg(arg), _ret(ret), 
         _cons(cons), _quoting(quoting) {
+        if (!_cons.size()) _cons.push(Constraint());
         _key += (quoting ? "[QF " : "[F ");
         _key += arg->key();
         _key += " ";
@@ -432,6 +599,16 @@ namespace basil {
 
     const vector<Constraint>& FunctionType::constraints() const {
         return _cons;
+    }
+
+    bool FunctionType::total() const {
+        vector<Meta> vals;
+        for (const Constraint& c : _cons) {
+            if (c.type() == OF_TYPE || c.type() == UNKNOWN) return true;
+            else vals.push(c.value());
+        }
+        // todo: exhaustive cases
+        return false;
     }
 
     bool FunctionType::conflictsWith(const Type* other) const {
@@ -585,6 +762,11 @@ namespace basil {
                *UNDEFINED = find<Type>("undefined", 1),
                *STRING = find<Type>("string", 8),
                *CHAR = find<Type>("char", 4);
+    
+    bool isGC(const Type* t) {
+        return t == STRING 
+            || t->is<ListType>();
+    }
 }
 
 void print(stream& io, const basil::Type* t) {

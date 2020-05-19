@@ -36,9 +36,10 @@ namespace basil {
         TOKEN_PLUS,
         TOKEN_MINUS,
         TOKEN_EVAL,
+        TOKEN_REF, 
         TOKEN_BOOL;
     
-    extern const char* TOKEN_NAMES[26];
+    extern const char* TOKEN_NAMES[27];
 
     struct Token {
         ustring value;

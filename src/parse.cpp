@@ -158,6 +158,10 @@ namespace basil {
             view.read();
             terms.push(new BoolTerm(t.value == "true", t.line, t.column));
         }
+        else if (t.type == TOKEN_SYMBOL) {
+            view.read();
+            terms.push(new SymbolTerm(t.value, t.line, t.column));
+        }
         else if (t.type == TOKEN_IDENT) {
             view.read();
             terms.push(new VariableTerm(t.value, t.line, t.column));
@@ -186,16 +190,10 @@ namespace basil {
             while (view.peek().type != TOKEN_RBRACK) 
                 parsePrimary(contents, view, indent);
             view.read();
-            Term* vals = new EmptyTerm(t.line, t.column);
-            if (contents.size() > 0) 
-                for (i64 i = contents.size() - 1; i >= 0; i --) {
-                vals = new BlockTerm({
-                    contents[i],
-                    new VariableTerm("::", contents[i]->line(), 
-                        contents[i]->column()),
-                    vals
-                }, contents[i]->line(), contents[i]->column());
-            }
+            Term* vals = new BlockTerm({
+                new VariableTerm("quote", t.line, t.column),
+                new BlockTerm(contents, t.line, t.column)
+            }, t.line, t.column);
             terms.push(vals);
         }
         else if (t.type == TOKEN_MINUS) {
@@ -223,7 +221,16 @@ namespace basil {
             vector<Term*> temp;
             parsePrimary(temp, view, indent);
             terms.push(new BlockTerm({
-                new VariableTerm("eval!", t.line, t.column),
+                new VariableTerm("eval", t.line, t.column),
+                temp[0]
+            }, t.line, t.column));
+        }
+        else if (t.type == TOKEN_REF) {
+            view.read();
+            vector<Term*> temp;
+            parsePrimary(temp, view, indent);
+            terms.push(new BlockTerm({
+                new VariableTerm("~", t.line, t.column),
                 temp[0]
             }, t.line, t.column));
         }
@@ -256,7 +263,7 @@ namespace basil {
             parseChunk(temp, view, indent, false);
             terms.push(new BlockTerm({
                 new VariableTerm(
-                    t.type == TOKEN_LAMBDA ? "lambda!" : "metalambda!", 
+                    t.type == TOKEN_LAMBDA ? "lambda" : "metalambda", 
                     t.line, t.column
                 ),
                 arg,
@@ -273,7 +280,7 @@ namespace basil {
             parseChunk(temp, view, indent, false);
             terms.push(new BlockTerm({
                 new VariableTerm(
-                    t.type == TOKEN_MACRO ? "macro!" : "metamacro!", 
+                    t.type == TOKEN_MACRO ? "macro" : "metamacro", 
                     t.line, 
                     t.column
                 ),
@@ -294,7 +301,7 @@ namespace basil {
             vector<Term*> temp;
             parseChunk(temp, view, indent, false);
             terms.push(new BlockTerm({
-                new VariableTerm("define!", t.line, t.column),
+                new VariableTerm("define", t.line, t.column),
                 dst,
                 temp.size() == 1 ? temp[0]
                     : new BlockTerm(temp, temp[0]->line(), temp[0]->column())
@@ -312,7 +319,7 @@ namespace basil {
             vector<Term*> temp;
             parseChunk(temp, view, indent, false);
             terms.push(new BlockTerm({
-                new VariableTerm("set!", t.line, t.column),
+                new VariableTerm("assign", t.line, t.column),
                 dst,
                 temp.size() == 1 ? temp[0]
                     : new BlockTerm(temp, temp[0]->line(), temp[0]->column())

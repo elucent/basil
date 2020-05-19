@@ -28,6 +28,7 @@ namespace basil {
     void catchErrors();
     void releaseErrors();
     void discardErrors();
+    Error& lastError();
 
     template<typename... Args>
     void err(Phase phase, u32 line, u32 column, const Args&... args) {
@@ -49,6 +50,13 @@ namespace basil {
         e.message = b;
         e.src = src;
         reportError(e);
+    }
+
+    template<typename... Args>
+    void note(Phase phase, u32 line, u32 column, const Args&... args) {
+        buffer b;
+        fprint(b, "(", line, ":", column, ") - ", args...);
+        fprint(lastError().message, "\n", b);
     }
 }
 

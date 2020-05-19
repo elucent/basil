@@ -77,6 +77,7 @@ namespace basil {
         virtual u32 slot(const Type* type) = 0;
         virtual Insn* add(Insn* i) = 0;
         virtual u32 size() const = 0;
+        virtual void finalize(CodeGenerator& gen) = 0;
         virtual void allocate() = 0;
         virtual Insn* label(const ustring& name) = 0;
         Location* none() const;
@@ -97,6 +98,7 @@ namespace basil {
         u32 size() const override;
         Insn* add(Insn* i) override;
         Insn* label(const ustring& name) override;
+        void finalize(CodeGenerator& gen) override;
         void allocate() override;
         void format(stream& io);
         const ustring& label() const;
@@ -129,6 +131,7 @@ namespace basil {
         u32 size() const override;
         Insn* add(Insn* i) override;
         Insn* label(const ustring& name) override;
+        void finalize(CodeGenerator& gen) override;
         void allocate() override;
         Location* locateArg(const Type* type);
         Location* locateRet(const Type* type);
@@ -474,6 +477,24 @@ namespace basil {
         bool liveout(CodeFrame& gen, const set<Location*>& out) override;
         virtual void emitX86(buffer& text, buffer& data) override;
     };
+    
+    class CCallInsn : public Insn {
+        vector<Location*> _args;
+        ustring _func;
+        const Type* _ret;
+    protected:
+        virtual Location* lazyValue(CodeGenerator& gen,
+                                   CodeFrame& frame) override;
+    public:
+        static const InsnClass CLASS;
+        CCallInsn(const vector<Location*>& args, const ustring& func, 
+                  const Type* ret, const InsnClass* ic = &CLASS);
+
+        virtual void format(stream& io);        
+        bool liveout(CodeFrame& gen, const set<Location*>& out) override;
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
 
     class RetInsn : public Insn {
         Location *_operand;
@@ -550,6 +571,9 @@ namespace basil {
         virtual void format(stream& io);
         virtual void emitX86(buffer& text, buffer& data) override;
     };
+
+    // code gen utilities
+    void irDestroy(CodeGenerator& gen, CodeFrame& frame, Location* value);
 }
 
 void print(stream& s, basil::Location* loc);

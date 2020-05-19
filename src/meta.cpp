@@ -4,9 +4,26 @@
 #include "errors.h"
 
 namespace basil {
-    u32 findSymbol(const ustring& name) {
-        // TODO: symbols
-        return 0;
+    map<u64, ustring> symbolnames;
+    map<ustring, u64> symbolids;
+    u64 next = 0;
+
+    u64 findSymbol(const ustring& name) {
+        auto it = symbolids.find(name);
+        if (it == symbolids.end()) {
+            u64 id = next ++;
+            symbolnames[symbolids[name] = id] = name;
+            return id;
+        }
+        return it->second;
+    }
+
+    const ustring& findSymbol(u64 id) {
+        auto it = symbolnames.find(id);
+        if (it == symbolnames.end()) {
+            return "";
+        }
+        return it->second;
     }
 
     // Meta
@@ -31,6 +48,8 @@ namespace basil {
         else if (isFloat()) value.d = other.value.d;
         else if (isType()) value.t = other.value.t;
         else if (isBool()) value.b = other.value.b;
+        else if (isSymbol()) value.u = other.value.u;
+        else if (isRef()) value.r = other.value.r;
         else if (isString()) value.s = other.value.s, value.s->inc();
         else if (isList()) value.l = other.value.l, value.l->inc();
         else if (isTuple()) value.tu = other.value.tu, value.tu->inc();
@@ -40,6 +59,29 @@ namespace basil {
         else if (isIntersect()) value.in = other.value.in, value.in->inc();
         else if (isFunction()) value.f = other.value.f, value.f->inc();
         else if (isMacro()) value.m = other.value.m, value.m->inc();
+    }
+
+    void Meta::assign(const Meta& other) {
+        auto prev = value;
+        _type = other._type;
+        value.s = nullptr;
+        if (!_type || isVoid()) return;
+        else if (isInt()) value.i = other.value.i;
+        else if (isUint()) value.u = other.value.u;
+        else if (isFloat()) value.d = other.value.d;
+        else if (isType()) value.t = other.value.t;
+        else if (isBool()) value.b = other.value.b;
+        else if (isSymbol()) value.u = other.value.u;
+        else if (isRef()) value.r = other.value.r;
+        else if (isString()) value.s = other.value.s, value.s->inc(), prev.s ? prev.s->dec() : void();
+        else if (isList()) value.l = other.value.l, value.l->inc(), prev.l ? prev.l->dec() : void();
+        else if (isTuple()) value.tu = other.value.tu, value.tu->inc(), prev.tu ? prev.tu->dec() : void();
+        else if (isArray()) value.a = other.value.a, value.a->inc(), prev.a ? prev.a->dec() : void();
+        else if (isBlock()) value.bl = other.value.bl, value.bl->inc(), prev.bl ? prev.bl->dec() : void();
+        else if (isUnion()) value.un = other.value.un, value.un->inc(), prev.un ? prev.un->dec() : void();
+        else if (isIntersect()) value.in = other.value.in, value.in->inc(), prev.in ? prev.in->dec() : void();
+        else if (isFunction()) value.f = other.value.f, value.f->inc(), prev.f ? prev.f->dec() : void();
+        else if (isMacro()) value.m = other.value.m, value.m->inc(), prev.m ? prev.m->dec() : void();
     }
 
     Meta::Meta(): _type(nullptr) {
@@ -75,47 +117,42 @@ namespace basil {
     }
 
     Meta::Meta(const Type* type, const ustring& s): Meta(type) {
-        value.s = new MetaString(s);
+        if (type == STRING)
+            value.s = new MetaString(s);
+        else if (type == SYMBOL)
+            value.u = findSymbol(s);
     }
 
     Meta::Meta(const Type* type, MetaList* l): Meta(type) {
         value.l = l;
-        l->inc();
     }
 
     Meta::Meta(const Type* type, MetaTuple* tu): Meta(type) {
         value.tu = tu;
-        tu->inc();
     }
 
     Meta::Meta(const Type* type, MetaArray* a): Meta(type) {
         value.a = a;
-        a->inc();
     }
 
     Meta::Meta(const Type* type, MetaBlock* bl): Meta(type) {
         value.bl = bl;
-        bl->inc();
     }
 
     Meta::Meta(const Type* type, MetaUnion* un): Meta(type) {
         value.un = un;
-        un->inc();
     }
 
     Meta::Meta(const Type* type, MetaIntersect* in): Meta(type) {
         value.in = in;
-        in->inc();
     }
 
     Meta::Meta(const Type* type, MetaFunction* f): Meta(type) {
         value.f = f;
-        f->inc();
     }
 
     Meta::Meta(const Type* type, MetaMacro* m): Meta(type) {
         value.m = m;
-        m->inc();
     }
 
     Meta::~Meta() {
@@ -128,8 +165,7 @@ namespace basil {
 
     Meta& Meta::operator=(const Meta& other) {
         if (this != &other) {
-            free();
-            copy(other);
+            assign(other);
         }
         return *this;
     }
@@ -210,9 +246,21 @@ namespace basil {
         return value.b;
     }
 
+    bool Meta::isSymbol() const {
+        return _type == SYMBOL;
+    }
+
+    u64 Meta::asSymbol() const {
+        return value.u;
+    }
+
+    u64& Meta::asSymbol() {
+        return value.u;
+    }
+
     bool Meta::isRef() const {
         if (!_type) return false;
-        return false; //_type->is<ReferenceType>();
+        return _type->is<ReferenceType>();
     }
 
     const Meta& Meta::asRef() const {
@@ -276,7 +324,7 @@ namespace basil {
     
     bool Meta::isBlock() const {
         if (!_type) return false;
-        return false; // _type->is<BlockType>();
+        return _type->is<BlockType>();
     }
 
     const MetaBlock& Meta::asBlock() const {
@@ -302,7 +350,7 @@ namespace basil {
 
     bool Meta::isIntersect() const {
         if (!_type) return false;
-        return _type->is<UnionType>();
+        return _type->is<IntersectionType>();
     }
 
     const MetaIntersect& Meta::asIntersect() const {
@@ -364,7 +412,9 @@ namespace basil {
         else if (isFloat()) print(io, asFloat());
         else if (isType()) print(io, asType());
         else if (isBool()) print(io, asBool());
+        else if (isSymbol()) print(io, findSymbol(asSymbol()));
         else if (isString()) print(io, asString());
+        else if (isRef()) print(io, "~", asRef());
         else if (isList()) 
             print(io, "(", asList().head(), " :: ", asList().tail(), ")");
         else if (isTuple()) {
@@ -382,17 +432,17 @@ namespace basil {
             print(io, "}");
         }
         else if (isBlock()) {
-            print(io, "[");
+            print(io, "(");
             for (u32 i = 0; i < asBlock().size(); i ++) {
                 print(io, i != 0 ? " " : "", asBlock()[i]);
             }
-            print(io, "]");
+            print(io, ")");
         }
         else if (isUnion())
             print(io, "(", _type, " of ", asUnion().value(), ")");
         else if (isIntersect()) {
             print(io, "(");
-            for (u32 i = 0; i < asTuple().size(); i ++) {
+            for (u32 i = 0; i < asTuple().size() - 1; i ++) {
                 print(io, i != 0 ? " & " : "", asTuple()[i]);
             }
             print(io, ")");
@@ -410,6 +460,7 @@ namespace basil {
         else if (isFloat()) return asFloat() == m.asFloat();
         else if (isType()) return asType() == m.asType();
         else if (isBool()) return asBool() == m.asBool();
+        else if (isSymbol()) return asSymbol() == m.asSymbol();
         else if (isString()) return asString() == m.asString();
         else if (isList()) 
             return asList().head() == m.asList().head()
@@ -456,6 +507,7 @@ namespace basil {
         else if (isFloat()) return h ^ ::hash(asFloat());
         else if (isType()) return h ^ ::hash(asType());
         else if (isBool()) return h ^ ::hash(asBool());
+        else if (isSymbol()) return h ^ ::hash(asSymbol());
         else if (isString()) return h ^ ::hash(asString());
         else if (isList()) 
             return h ^ asList().head().hash() ^ asList().tail().hash();
@@ -772,12 +824,30 @@ namespace basil {
 
     // MetaFunction
 
-    MetaFunction::MetaFunction(Value* function): fn(function) {
+    MetaFunction::MetaFunction(Value* function): 
+        fn(function), _captures(nullptr) {
         //
+    }
+
+    MetaFunction::MetaFunction(Value* function, const map<ustring, Meta>& captures):   
+        fn(function), _captures(new map<ustring, Meta>(captures)) {
+        //
+    }
+
+    MetaFunction::~MetaFunction() {
+        if (_captures) delete _captures;
     }
 
     Value* MetaFunction::value() const {
         return fn;
+    }
+
+    map<ustring, Meta>* MetaFunction::captures() {
+        return _captures;
+    }
+
+    const map<ustring, Meta>* MetaFunction::captures() const {
+        return _captures;
     }
 
     Meta MetaFunction::clone(const Meta& src) const {
@@ -1029,6 +1099,10 @@ namespace basil {
 
     Meta intersect(const Meta& lhs, const Meta& rhs) {
         return Meta();
+    }
+
+    void assign(Meta& lhs, const Meta& rhs) {
+        lhs = rhs;
     }
 }
 

@@ -157,6 +157,20 @@ namespace basil {
 
     // Passes
 
+    void evaluateAll(CodeGenerator& gen, CodeFrame& frame, vector<Insn*>& insns) {
+        for (Insn* i : insns) i->value(gen, frame); // force computation of value
+    }
+
+    void addDestructors(CodeFrame& frame, vector<Insn*>& insns, vector<Location>& variables) {
+        set<Location*> toClean;
+        for (Location& loc : variables) {
+            // println(_stdout, "considering variable ", &loc, " for destructor, has type ", loc.type);
+            if (isGC(loc.type)) toClean.insert(&loc);
+        }
+        for (Location* loc : toClean)
+            frame.add(new CCallInsn({ loc }, "_rcdec", VOID));
+    }
+
     void hlCanonicalize(CodeFrame& frame, vector<Insn*>& insns) {
         vector<Insn*> newInsns;
         MovInsn* prev = nullptr;
@@ -341,6 +355,12 @@ namespace basil {
         return nullptr;
     }
 
+    void Function::finalize(CodeGenerator& gen) {
+        evaluateAll(gen, *this, insns);
+        addDestructors(*this, insns, variables);
+        evaluateAll(gen, *this, insns);
+    }
+
     void Function::allocate() {
         // hlCanonicalize(*this, insns);
         livenessPass(*this, insns);
@@ -453,6 +473,13 @@ namespace basil {
         auto it = labels.find(name);
         if (it != labels.end()) return it->second;
         return nullptr;
+    }
+
+    void CodeGenerator::finalize(CodeGenerator& gen) {
+        for (Function* fn : functions) fn->finalize(gen);
+        evaluateAll(gen, *this, insns);
+        addDestructors(*this, insns, variables);
+        evaluateAll(gen, *this, insns);
     }
 
     void CodeGenerator::allocate() {
@@ -1015,7 +1042,44 @@ namespace basil {
     }
     
     void CallInsn::format(stream& io) {
-        println(io, "    ", _cached, " = ", _func, " (", _operand, ")");
+        if (*_cached) print(io, "    ", _cached, " = ");
+        else print(io, "    ");
+        println(io, _func, " (", _operand, ")");
+    }
+
+    // CCallInsn 
+    
+    Location* CCallInsn::lazyValue(CodeGenerator& gen,
+                                   CodeFrame& frame) {
+        if (_ret == VOID) return frame.none();
+        return frame.stack(_ret);
+    }
+
+    const InsnClass CCallInsn::CLASS(Insn::CLASS);
+
+    CCallInsn::CCallInsn(const vector<Location*>& args, const ustring& func, 
+                         const Type* ret, const InsnClass* ic):
+        Insn(ic), _args(args), _func(func), _ret(ret) {
+        //
+    }
+
+    void CCallInsn::format(stream& io) {
+        if (*_cached) print(io, "    ", _cached, " = ");
+        else print(io, "    ");
+        print(io, _func, " (");
+        for (u64 i = 0; i < _args.size(); i ++) {
+            if (i > 0) print(io, ", ", _args[i]);
+            else print(io, _args[i]);
+        }
+        println(io, ")\t; stdlib call");
+    }   
+
+    bool CCallInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
+        Insn::liveout(gen, out);
+        for (Location* l : _args) _in.insert(l);
+        _in.erase(_cached);
+
+        return false;
     }
 
     // RetInsn
@@ -1156,6 +1220,14 @@ namespace basil {
     void Label::format(stream& io) {
         println(io, _label, ":");
     }
+
+    // code gen utilities
+
+    void irDestroy(CodeGenerator& gen, CodeFrame& frame, Location* value) {
+        if (isGC(value->type)) {
+            frame.add(new CCallInsn({ value }, "_rcdec", VOID));
+        }
+    }
 }
 
 void print(stream& s, basil::Location* loc) {
@@ -1253,6 +1325,7 @@ namespace basil {
     void StrData::emitX86Const(buffer& text, buffer& data) {
         u32 len = 0;
         for (u32 i = 0; i < _value.size(); i ++) len += _value[i].size();
+        x64::printer::intconst(text, data, 1); // fake ref count
         x64::printer::label(text, data, x64::DATA, _label, false);
         x64::printer::intconst(text, data, len);
         x64::printer::strconst(text, data, _value);
@@ -1456,6 +1529,7 @@ namespace basil {
         Location rax(RAX, _operand->type);
         Location rdi(RDI, _operand->type);
         Location rsi(RSI, _operand->type);
+        Location rdx(RDX, _operand->type);
         // const FunctionType* ft = _func->type->as<FunctionType>();
 
         vector<Location*> saved;
@@ -1468,6 +1542,36 @@ namespace basil {
         }
         
         x64::printer::mov(text, data, _operand, &rdi);
+        x64::printer::call(text, data, _func);
+        if (*_cached) x64::printer::mov(text, data, &rax, _cached);
+
+        for (i64 i = i64(saved.size()) - 1; i >= 0; i --) {
+            x64::printer::pop(text, data, saved[i]);
+        }
+    }
+
+    void CCallInsn::emitX86(buffer& text, buffer& data) {
+        Location rax(RAX, _ret);
+        Location args[] = {
+            Location(RDI, ANY),
+            Location(RSI, ANY),
+            Location(RDX, ANY)
+        };
+        // const FunctionType* ft = _func->type->as<FunctionType>();
+
+        vector<Location*> saved;
+        for (Location* l : _in) if (l->segm == REGISTER) {
+            if (_out.find(l) != _out.end()) saved.push(l);
+        }
+
+        for (u32 i = 0; i < saved.size(); i ++) {
+            x64::printer::push(text, data, saved[i]);
+        }
+        
+        for (u32 i = 0; i < _args.size(); i ++) {
+            args[i].type = _args[i]->type;
+            x64::printer::mov(text, data, _args[i], &args[i]);
+        }
         x64::printer::call(text, data, _func);
         if (*_cached) x64::printer::mov(text, data, &rax, _cached);
 

@@ -4,6 +4,7 @@
 #include "defs.h"
 #include "vec.h"
 #include "utf8.h"
+#include "meta.h"
 
 namespace basil {
     class TermClass {
@@ -34,6 +35,9 @@ namespace basil {
         virtual bool equals(const Term* other) const = 0;
         virtual u64 hash() const = 0;
         virtual Term* clone() const = 0;
+        virtual const Type* type() const = 0;
+        virtual Meta fold() const = 0;
+        virtual void repr(stream& io) const = 0;
 
         template<typename T>
         bool is() const {
@@ -75,6 +79,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class RationalTerm : public Term {
@@ -90,6 +97,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class StringTerm : public Term {
@@ -105,6 +115,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class CharTerm : public Term {
@@ -120,6 +133,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class BoolTerm : public Term {
@@ -135,6 +151,27 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class SymbolTerm : public Term {
+        ustring _name;
+    public:
+        static const TermClass CLASS;
+
+        SymbolTerm(const ustring& name, u32 line, u32 column,
+                 const TermClass* tc = &CLASS);
+        const ustring& name() const;
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual void eval(Stack& stack) override;
+        virtual bool equals(const Term* other) const override;
+        virtual u64 hash() const override;
+        virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class VoidTerm : public Term {
@@ -148,6 +185,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class EmptyTerm : public Term {
@@ -161,6 +201,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class VariableTerm : public Term {
@@ -177,6 +220,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class BlockTerm : public Term {
@@ -192,6 +238,9 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 
     class ProgramTerm : public Term {
@@ -213,7 +262,13 @@ namespace basil {
         virtual bool equals(const Term* other) const override;
         virtual u64 hash() const override;
         virtual Term* clone() const override;
+        virtual const Type* type() const override;
+        virtual Meta fold() const override;
+        virtual void repr(stream& io) const override;
     };
 }
+
+void print(stream& io, basil::Term* t);
+void print(basil::Term* t);
 
 #endif

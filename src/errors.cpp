@@ -88,6 +88,10 @@ namespace basil {
         for (const Error& e : (errorFrames.size() 
             ? errorFrames.back() : errors)) print(io, e);
     }
+
+    Error& lastError() {
+        return (errorFrames.size() ? errorFrames.back().back() : errors.back());
+    }
 }
 
 void print(stream& io, const basil::Error& e) {

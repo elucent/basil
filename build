@@ -1,0 +1,7 @@
+set -euo pipefail
+
+FNAME=$1
+# trap 'tmp="BASH_COMMAND"; eval echo "${!tmp}"' DEBUG
+./basil $FNAME > ${FNAME%.bl}.s
+as ${FNAME%.bl}.s -o ${FNAME%.bl}.o
+ld ${FNAME%.bl}.o lib/core.o -o ${FNAME%.bl}

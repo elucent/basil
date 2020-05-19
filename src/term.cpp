@@ -85,6 +85,18 @@ namespace basil {
         return new IntegerTerm(_value, line(), column());
     }
 
+    const Type* IntegerTerm::type() const {
+        return I64;
+    }
+
+    Meta IntegerTerm::fold() const {
+        return Meta(I64, _value);
+    }
+
+    void IntegerTerm::repr(stream& io) const {
+        print(io, _value);
+    }
+
     // RationalTerm
 
     const TermClass RationalTerm::CLASS(Term::CLASS);
@@ -119,6 +131,18 @@ namespace basil {
 
     Term* RationalTerm::clone() const {
         return new RationalTerm(_value, line(), column());
+    }
+
+    const Type* RationalTerm::type() const {
+        return DOUBLE;
+    }
+
+    Meta RationalTerm::fold() const {
+        return Meta(DOUBLE, _value);
+    }
+
+    void RationalTerm::repr(stream& io) const {
+        print(io, _value);
     }
 
     // StringTerm
@@ -157,6 +181,18 @@ namespace basil {
         return new StringTerm(_value, line(), column());
     }
 
+    const Type* StringTerm::type() const {
+        return STRING;
+    }
+
+    Meta StringTerm::fold() const {
+        return Meta(STRING, _value);
+    }
+
+    void StringTerm::repr(stream& io) const {
+        print(io, '"', _value, '"');
+    }
+
     // CharTerm
 
     const TermClass CharTerm::CLASS(Term::CLASS);
@@ -191,6 +227,18 @@ namespace basil {
 
     Term* CharTerm::clone() const {
         return new CharTerm(_value, line(), column());
+    }
+
+    const Type* CharTerm::type() const {
+        return U8;
+    }
+
+    Meta CharTerm::fold() const {
+        return Meta(U8, u64(_value));
+    }
+
+    void CharTerm::repr(stream& io) const {
+        print(io, '\'', _value, '\'');
     }
 
     // BoolTerm
@@ -229,6 +277,66 @@ namespace basil {
         return new BoolTerm(_value, line(), column());
     }
 
+    const Type* BoolTerm::type() const {
+        return BOOL;
+    }
+
+    Meta BoolTerm::fold() const {
+        return Meta(BOOL, _value);
+    }
+
+    void BoolTerm::repr(stream& io) const {
+        print(io, _value);
+    }
+
+    // SymbolTerm
+
+    const TermClass SymbolTerm::CLASS(Term::CLASS);
+
+    SymbolTerm::SymbolTerm(const ustring& name, u32 line, u32 column,
+                            const TermClass* tc):
+        Term(line, column, tc), _name(name) {
+        //
+    }
+
+    const ustring& SymbolTerm::name() const {
+        return _name;
+    }
+
+    void SymbolTerm::format(stream& io, u32 level) const {
+        indent(io, level);
+        println(io, "Symbol \"", _name, "\"");
+    }
+
+    void SymbolTerm::eval(Stack& stack) {
+        stack.push(new SymbolConstant(_name, line(), column()));
+    }
+    
+    bool SymbolTerm::equals(const Term* other) const {
+        return other->is<SymbolTerm>() 
+            && _name == other->as<SymbolTerm>()->_name;
+    }
+
+    u64 SymbolTerm::hash() const {
+        return ::hash(_name);
+    }
+
+    Term* SymbolTerm::clone() const {
+        return new SymbolTerm(_name, line(), column());
+    }
+
+    const Type* SymbolTerm::type() const {
+        return SYMBOL;
+    }
+
+    Meta SymbolTerm::fold() const {
+        return Meta(SYMBOL, _name);
+    }
+
+    void SymbolTerm::repr(stream& io) const {
+        print(io, '#', _name);
+    }
+
     // VoidTerm
 
     const TermClass VoidTerm::CLASS(Term::CLASS);
@@ -257,6 +365,18 @@ namespace basil {
 
     Term* VoidTerm::clone() const {
         return new VoidTerm(line(), column());
+    }
+
+    const Type* VoidTerm::type() const {
+        return VOID;
+    }
+
+    Meta VoidTerm::fold() const {
+        return Meta(VOID);
+    }
+
+    void VoidTerm::repr(stream& io) const {
+        print(io, "()");
     }
     
     // EmptyTerm
@@ -287,6 +407,18 @@ namespace basil {
 
     Term* EmptyTerm::clone() const {
         return new EmptyTerm(line(), column());
+    }
+
+    const Type* EmptyTerm::type() const {
+        return find<BlockType>(vector<const Type*>());
+    }
+
+    Meta EmptyTerm::fold() const {
+        return Meta(type(), new MetaBlock({}));
+    }
+
+    void EmptyTerm::repr(stream& io) const {
+        print(io, "[]");
     }
 
     // VariableTerm
@@ -329,6 +461,18 @@ namespace basil {
 
     Term* VariableTerm::clone() const {
         return new VariableTerm(_name, line(), column());
+    }
+
+    const Type* VariableTerm::type() const {
+        return SYMBOL;
+    }
+
+    Meta VariableTerm::fold() const {
+        return Meta(SYMBOL, _name);
+    }
+
+    void VariableTerm::repr(stream& io) const {
+        print(io, _name);
     }
 
     // BlockTerm
@@ -390,6 +534,27 @@ namespace basil {
         return new BlockTerm(children, line(), column());
     }
 
+    const Type* BlockTerm::type() const {
+        vector<const Type*> ts;
+        for (Term* child : _children) ts.push(child->type());
+        return find<BlockType>(ts);
+    }
+
+    Meta BlockTerm::fold() const {
+        vector<Meta> metas;
+        for (Term* child : _children) metas.push(child->fold());
+        return Meta(type(), new MetaBlock(metas));
+    }
+
+    void BlockTerm::repr(stream& io) const {
+        print(io, '(');
+        for (u32 i = 0; i < _children.size(); i ++) {
+            if (i > 0) print(io, ' ');
+            _children[i]->repr(io);
+        }
+        print(io, ')');
+    }
+
     // ProgramTerm
 
     const TermClass ProgramTerm::CLASS(Term::CLASS);
@@ -408,7 +573,7 @@ namespace basil {
     }
     
     void ProgramTerm::initRoot() {
-        root->bind("+", BinaryMath::BASE_TYPE(), factory<Add>);
+        root->bind("+", Add::BASE_TYPE(), factory<Add>);
         root->bind("-", BinaryMath::BASE_TYPE(), factory<Subtract>);
         root->bind("*", BinaryMath::BASE_TYPE(), factory<Multiply>);
         root->bind("/", BinaryMath::BASE_TYPE(), factory<Divide>);
@@ -430,23 +595,20 @@ namespace basil {
         root->bind("print", Print::BASE_TYPE(), factory<Print>);
         root->bind("metaprint", Metaprint::BASE_TYPE(), factory<Metaprint>);
         root->bind("log", Metaprint::BASE_TYPE(), factory<Metaprint>);
-        root->bind("set!", find<FunctionType>(ANY, 
+        root->bind("assign", find<FunctionType>(ANY, 
             find<FunctionType>(ANY, ANY)), factory<Assign>);
-        root->bind("lambda!", find<MacroType>(ANY, true), factory<Lambda>);
         root->bind("lambda", find<MacroType>(ANY, true), factory<Lambda>);
         root->bind("λ", find<MacroType>(ANY, true), factory<Lambda>);
-        root->bind("macro!", find<MacroType>(ANY, true), macro);
         root->bind("macro", find<MacroType>(ANY, true), macro);
-        root->bind("metamacro!", find<MacroType>(ANY, true), metamacro);
         root->bind("metamacro", find<MacroType>(ANY, true), metamacro);
-        root->bind("define!", find<MacroType>(ANY, true), 
-            factory<Autodefine>);
         root->bind("define", find<MacroType>(ANY, true), 
             factory<Autodefine>);
         root->bind("let", find<MacroType>(ANY, true), 
             factory<Autodefine>);
-        root->bind("eval!", find<MacroType>(ANY), factory<Eval>);
+        root->bind("quote", find<MacroType>(ANY, true), factory<Quote>);
         root->bind("eval", find<MacroType>(ANY), factory<Eval>);
+        root->bind("typeof", find<FunctionType>(ANY, TYPE), factory<Typeof>);
+        root->bind("~", find<FunctionType>(ANY, ANY), factory<Reference>);
 
         // root->bind("true", new BoolConstant(true, 0, 0));
         // root->bind("false", new BoolConstant(false, 0, 0));
@@ -508,6 +670,7 @@ namespace basil {
             else t->eval(*global);
         }
         for (Value* v : *global) v->type(*global);
+        for (Value* v : *global) v->fold(*global);
         
         vector<Value*> vals;
         for (Value* v : *global) vals.push(v);
@@ -522,6 +685,7 @@ namespace basil {
         Stack* local = new Stack(global);
         t->eval(*local);
         for (Value* v : *local) v->type(*local);
+        for (Value* v : *local) v->fold(*local);
         stack.copy(*local);
     }
     
@@ -547,4 +711,33 @@ namespace basil {
         for (Term* child : _children) children.push(child->clone());
         return new ProgramTerm(children, line(), column());
     }
+
+    const Type* ProgramTerm::type() const {
+        vector<const Type*> ts;
+        for (Term* child : _children) ts.push(child->type());
+        return find<BlockType>(ts);
+    }
+
+    Meta ProgramTerm::fold() const {
+        vector<Meta> metas;
+        for (Term* child : _children) metas.push(child->fold());
+        return Meta(type(), new MetaBlock(metas));
+    }
+
+    void ProgramTerm::repr(stream& io) const {
+        print(io, '(');
+        for (u32 i = 0; i < _children.size(); i ++) {
+            if (i > 0) print(io, ' ');
+            _children[i]->repr(io);
+        }
+        print(io, ')');
+    }
+}
+
+void print(stream& io, basil::Term* t) {
+    t->repr(io);
+}
+
+void print(basil::Term* t) {
+    print(_stdout, t);
 }

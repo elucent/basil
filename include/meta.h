@@ -8,7 +8,8 @@
 #include "io.h"
 
 namespace basil {
-    extern u32 findSymbol(const ustring& name);
+    extern u64 findSymbol(const ustring& name);
+    extern const ustring& findSymbol(u64 name);
 
     class Meta {
         const Type* _type;
@@ -32,6 +33,7 @@ namespace basil {
 
         void free();
         void copy(const Meta& other);
+        void assign(const Meta& other);
     public:
         Meta();
         Meta(const Type* type);
@@ -70,6 +72,9 @@ namespace basil {
         bool isBool() const;
         bool asBool() const;
         bool& asBool();
+        bool isSymbol() const;
+        u64 asSymbol() const;
+        u64& asSymbol();
         bool isRef() const;
         const Meta& asRef() const;
         Meta& asRef();
@@ -212,9 +217,14 @@ namespace basil {
 
     class MetaFunction : public MetaRC {
         Value* fn;
+        map<ustring, Meta>* _captures;
     public:
         MetaFunction(Value* function);
+        MetaFunction(Value* function, const map<ustring, Meta>& captures);
+        ~MetaFunction();
         Value* value() const;
+        map<ustring, Meta>* captures();
+        const map<ustring, Meta>* captures() const;
         Meta clone(const Meta& src) const override;
     };
 
@@ -225,6 +235,12 @@ namespace basil {
         Value* value() const;
         Meta clone(const Meta& src) const override;
     };
+
+    i64 trunc(i64 n, const Type* dest);
+    u64 trunc(u64 n, const Type* dest);
+    double toFloat(const Meta& m);
+    i64 toInt(const Meta& m);
+    u64 toUint(const Meta& m);
 
     Meta add(const Meta& lhs, const Meta& rhs);
     Meta sub(const Meta& lhs, const Meta& rhs);
@@ -245,6 +261,7 @@ namespace basil {
     Meta join(const Meta& lhs, const Meta& rhs);
     Meta unionf(const Meta& lhs, const Meta& rhs);
     Meta intersect(const Meta& lhs, const Meta& rhs);
+    void assign(Meta& lhs, const Meta& rhs);
 }
 
 template<>

@@ -95,6 +95,36 @@ namespace basil {
         virtual bool explicitly(const Type* other) const override;
     };
 
+    class BlockType : public Type {
+        vector<const Type*> _members;
+    public:
+        static const TypeClass CLASS;
+
+        BlockType(const vector<const Type*>& members,
+                  const TypeClass* tc = &CLASS);
+        const vector<const Type*>& members() const;
+        const Type* member(u32 i) const;
+        u32 count() const;
+        virtual bool implicitly(const Type* other) const override;
+        virtual bool explicitly(const Type* other) const override;
+        virtual void format(stream& io) const override;
+    };
+
+    class ArrayType : public Type {
+        const Type* _element;
+        u32 _count;
+    public:
+        static const TypeClass CLASS;
+
+        ArrayType(const Type* element, u32 size,
+                  const TypeClass* tc = &CLASS);
+        const Type* element() const;
+        u32 count() const;
+        virtual bool implicitly(const Type* other) const override;
+        virtual bool explicitly(const Type* other) const override;
+        virtual void format(stream& io) const override;
+    };
+
     class TupleType : public Type {
         vector<const Type*> _members;
         vector<u32> _offsets;
@@ -136,6 +166,18 @@ namespace basil {
         const set<const Type*>& members() const;
         bool has(const Type* t) const;
         virtual bool conflictsWith(const Type* other) const override;
+        virtual bool implicitly(const Type* other) const override;
+        virtual bool explicitly(const Type* other) const override;
+        virtual void format(stream& io) const override;
+    };
+
+    class ReferenceType : public Type {
+        const Type* _element;
+    public:
+        static const TypeClass CLASS;
+
+        ReferenceType(const Type* element, const TypeClass* tc = &CLASS);
+        const Type* element() const;
         virtual bool implicitly(const Type* other) const override;
         virtual bool explicitly(const Type* other) const override;
         virtual void format(stream& io) const override;
@@ -203,6 +245,7 @@ namespace basil {
         const Type* ret() const;
         bool quoting() const;
         const vector<Constraint>& constraints() const;
+        bool total() const;
         virtual bool conflictsWith(const Type* other) const override;
         virtual bool implicitly(const Type* other) const override;
         virtual bool explicitly(const Type* other) const override;
@@ -237,6 +280,8 @@ namespace basil {
                       *FLOAT, *DOUBLE, *BOOL, *TYPE, *ERROR, 
                       *VOID, *ANY, *STRING, *CHAR, *EMPTY,
                       *SYMBOL;
+
+    bool isGC(const Type* a);
 }
 
 void print(stream& io, const basil::Type* t);

@@ -95,6 +95,7 @@ void repl() {
         if (level < IR) continue;
 
         for (Value* v : *s) v->gen(program->scope(), gen, gen);
+        gen.finalize(gen);
         
         if (level < ASM) {
             if (!silent) gen.format(_stdout);
@@ -199,6 +200,7 @@ int main(int argc, char** argv) {
     
     if (level >= IR) {
         for (Value* v : s) v->gen(program->scope(), gen, gen);
+        gen.finalize(gen);
         
         if (level < ASM) {
             if (!silent) gen.format(_stdout);

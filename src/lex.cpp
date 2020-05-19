@@ -28,9 +28,10 @@ namespace basil {
         TOKEN_PLUS = 22,
         TOKEN_MINUS = 23,
         TOKEN_EVAL = 24,
-        TOKEN_BOOL = 25;
+        TOKEN_BOOL = 25,
+        TOKEN_REF = 26;
     
-    const char* TOKEN_NAMES[26] = {
+    const char* TOKEN_NAMES[27] = {
         "none",
         "ident",
         "string",
@@ -56,7 +57,8 @@ namespace basil {
         "plus",
         "minus",
         "eval",
-        "bool"
+        "bool",
+        "ref"
     };
 
     Token::Token(): type(TOKEN_NONE) {
@@ -154,6 +156,14 @@ namespace basil {
             || c == '(' || c == ')' || c == '{' || c == '}' 
             || c == ';' || c == ',' || c == '[' 
             || c == ']' || c == '\''|| c == '"' || c == '.';
+    }
+
+    static bool isClosingDelimiter(Source::View& view) {
+        uchar c = view.peek();
+        return !c || isspace(c) 
+            || c == ')'|| c == '}' 
+            || c == ';' || c == ','
+            || c == ']' || c == '.';
     }
 
     static bool isDelimiterToken(Source::View& view) {
@@ -297,10 +307,10 @@ namespace basil {
         // treat as identifier if followed by special symbol
         if (view.peek() == '-' || view.peek() == '+' || view.peek() == '='
             || view.peek() == '>' || view.peek() == '<' || view.peek() == '!' 
-            || view.peek() == '~') {
+            || view.peek() == '~' || isClosingDelimiter(view)) {
             t.type = TOKEN_IDENT, scanIdentifier(t, view);
         }
-        else if (isDelimiter(view)) t.type = TOKEN_IDENT;
+        else if (isspace(view.peek())) t.type = TOKEN_IDENT;
     }
 
     void scanIdentifier(Token& t, Source::View& view) {
@@ -335,6 +345,14 @@ namespace basil {
             while (view.peek() != '\n') view.read();
             view.read();
         }
+        else if (c == '#') {
+            t = fromType(TOKEN_SYMBOL, view);
+            view.read();
+            scanIdentifier(t, view);
+            if (t.type != TOKEN_SYMBOL)
+                err(PHASE_LEX, view.source(), view.line(), view.column(),
+                    "Illegal symbol literal '", t.value, "' in input.");
+        }
         else if (c == '.') {
             t = fromType(TOKEN_IDENT, view);
             scanDot(t, view);
@@ -349,6 +367,10 @@ namespace basil {
         }
         else if (c == '!') {
             t = fromType(TOKEN_EVAL, view);
+            scanPrefixOp(t, view);
+        }
+        else if (c == '~') {
+            t = fromType(TOKEN_REF, view);
             scanPrefixOp(t, view);
         }
         else if (isdigit(c)) {
