@@ -1,0 +1,16 @@
+meta: print (1 + 2)       # 3
+meta: print (1 + 2.0)     # 3.0
+meta: print (1.0 + 2)     # 3.0
+meta: print (1.0 + 2.0)   # 3.0
+
+x = 10
+y = 20
+
+dist = (x * x) + (y * y)
+dist-wrong = x * x + y * y
+
+meta: print dist          # (10 * 10) + (20 * 20) => 500
+meta: print dist-wrong    # ((10 * 10) + 20) * 20 => 2400
+
+meta: print (5 / 2)       # 2
+meta: print (5.0 / 2)     # 2.5

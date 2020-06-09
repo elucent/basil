@@ -53,12 +53,12 @@ namespace basil {
             void mul(buffer& text, buffer& data, Location* src, Location* dst);
             void idiv(buffer& text, buffer& data, Location* src);
             void div(buffer& text, buffer& data, Location* src);
+            void fdiv(buffer& text, buffer& data, Location* src, Location* dst);
             void cmp(buffer& text, buffer& data, Location* src, Location* dst);
             void and_(buffer& text, buffer& data, Location* src, Location* dst);
             void or_(buffer& text, buffer& data, Location* src, Location* dst);
             void xor_(buffer& text, buffer& data, Location* src, Location* dst);
             void not_(buffer& text, buffer& data, Location* operand);
-            void cdq(buffer& text, buffer& data);
             void movsx(buffer& text, buffer& data, Location* src, Location* dst);
             void movzx(buffer& text, buffer& data, Location* src, Location* dst);
             void cvttsd2si(buffer& text, buffer& data, Location* src, Location* dst);
@@ -69,6 +69,7 @@ namespace basil {
             void cvtsi2ss(buffer& text, buffer& data, Location* src, Location* dst);
             void lea(buffer& text, buffer& data, const ustring& label, Location* dst);
             void lea(buffer& text, buffer& data, Location* addr, Location* dst);
+            void jmp(buffer& text, buffer& data, Location* addr);
             void jmp(buffer& text, buffer& data, const ustring& label);
             void jcc(buffer& text, buffer& data, const ustring& label, Condition condition);
             void setcc(buffer& text, buffer& data, Location* dst, Condition condition);
@@ -79,6 +80,7 @@ namespace basil {
             void call(buffer& text, buffer& data, const ustring& function);
             void push(buffer& text, buffer& data, Location* src);
             void pop(buffer& text, buffer& data, Location* dst);
+            void cdq(buffer& text, buffer& data);
         }
 
         // namespace assembler {

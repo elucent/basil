@@ -20,6 +20,7 @@ namespace basil {
     };
 
     class Stack {
+        ustring _name;
         Stack* _parent;
         vector<Value*> values;
         vector<Stack*> _children;
@@ -57,12 +58,19 @@ namespace basil {
     
     private:
         map<ustring, Entry>* table;
+
+        // type methods
+        using tmscope_t = map<pair<const Type*, const Type*>, Entry>;
+        using tmcache_t = map<const Type*, set<pair<const Type*, const Type*>>>;
+        tmscope_t* tmethods;
+        tmcache_t* tmcache;
+
         u32 _depth;
 
         const Type* tryApply(const Type* func, Value* arg,
-                                     u32 line, u32 column);
+                             u32 line, u32 column);
         const Type* tryApply(Value* func, Value* arg);
-        const Type* tryVoid(Value* func);
+        Entry* tryInteract(Value* first, Value* second);
         Value* apply(Value* func, const Type* ft, Value* arg);
     public:
         Stack(Stack* parent = nullptr, bool scope = false);
@@ -85,6 +93,9 @@ namespace basil {
         Entry* operator[](const ustring& name);
         const Stack* findenv(const ustring& name) const;
         Stack* findenv(const ustring& name);
+        Entry* interactOf(const Type* a, const Type* b);
+        void interact(const Type* a, const Type* b, const Meta& f);
+        void interact(const Type* a, const Type* b, builtin_t f);
         void bind(const ustring& name, const Type* t);
         void bind(const ustring& name, const Type* t, const Meta& f);
         void bind(const ustring& name, const Type* t, builtin_t b);
@@ -101,6 +112,8 @@ namespace basil {
         Stack* parent();
         const Stack* parent() const;
         u32 depth() const;
+        ustring& name();
+        const ustring& name() const;
     };
 
     class ValueClass {
@@ -130,7 +143,7 @@ namespace basil {
         virtual void format(stream& io, u32 level = 0) const = 0;
         const Type* type(Stack& ctx);
         virtual Meta fold(Stack& ctx);
-        virtual bool lvalue(Stack& ctx) const;
+        virtual bool lvalue(Stack& ctx);
         virtual Stack::Entry* entry(Stack& ctx) const;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame);
         virtual Value* clone(Stack& ctx) const = 0;
@@ -279,20 +292,6 @@ namespace basil {
         virtual void repr(stream& io) const override;
     };
 
-    class SymbolConstant : public Value {
-        ustring _name;
-    public:
-        static const ValueClass CLASS;
-
-        SymbolConstant(const ustring& name, u32 line, u32 column,
-                       const ValueClass* vc = &CLASS);
-        const ustring& name() const;
-        virtual void format(stream& io, u32 level = 0) const override;
-        virtual Meta fold(Stack& ctx) override;
-        virtual Value* clone(Stack& ctx) const override;
-        virtual void repr(stream& io) const override;
-    };
-
     class Incomplete : public Value {
         Term* _term;
     public:
@@ -317,9 +316,22 @@ namespace basil {
         const ustring& name() const;
         virtual void format(stream& io, u32 level = 0) const override;
         virtual Meta fold(Stack& ctx) override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
         virtual Stack::Entry* entry(Stack& ctx) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class Interaction : public Value {
+        Meta _fn;
+    public:
+        static const ValueClass CLASS;
+
+        Interaction(const Meta& fn, u32 line, u32 column, 
+                    const ValueClass* vc = &CLASS);
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
     };
@@ -388,6 +400,7 @@ namespace basil {
         ustring _label;
         vector<ustring> _alts;
         map<ustring, Stack::Entry> _captures;
+        map<const Type*, Lambda*> insts;
 
         bool _inlined;
     protected:
@@ -418,39 +431,11 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        void instantiate(const Type* t, Lambda* l);
+        Lambda* instance(const Type* t);
     };
     
     Lambda* instantiate(Stack& callctx, Lambda* l, const Type* a);
-
-    class Macro : public Builtin {
-        Stack* _ctx, *_bodyscope;
-        Value* _match;
-        Term* _body;
-        ustring argname;
-        bool _quoting;
-    protected:
-        virtual const Type* lazyType(Stack& ctx) override;
-    public:
-        static const ValueClass CLASS;
-
-        Macro(bool quoting, u32 line, u32 column, 
-               const ValueClass* vc = &CLASS);
-        ~Macro();
-        Value* match();
-        Term* body();
-        Stack* scope();
-        Stack* self();
-        virtual bool canApply(Stack& ctx, Value* v) const override;
-        virtual Value* apply(Stack& ctx, Value* v) override;
-        virtual void format(stream& io, u32 level = 0) const override;
-        virtual Meta fold(Stack& ctx) override;
-        virtual void bindrec(const ustring& name, const Type* type,
-                             const Meta& value);
-        virtual void expand(Stack& target, Value* arg);
-        virtual Value* clone(Stack& ctx) const override;
-        virtual void repr(stream& io) const override;
-        virtual void explore(Explorer& e) override;
-    };
 
     class Call : public Value {
         Value *_func, *_arg;
@@ -518,11 +503,10 @@ namespace basil {
 
     class BinaryMath : public BinaryOp {
         static const Type *_BASE_TYPE, *_PARTIAL_INT, 
-            *_PARTIAL_UINT, *_PARTIAL_DOUBLE;
+            *_PARTIAL_DOUBLE;
     public:
         static const Type *BASE_TYPE();
-        static const Type *PARTIAL_INT_TYPE(),
-            *PARTIAL_UINT_TYPE(), 
+        static const Type *PARTIAL_INT_TYPE(), 
             *PARTIAL_DOUBLE_TYPE();
         static const ValueClass CLASS;
     
@@ -639,11 +623,10 @@ namespace basil {
 
     class BinaryEquality : public BinaryOp {
         static const Type *_BASE_TYPE, *_PARTIAL_INT, 
-            *_PARTIAL_UINT, *_PARTIAL_DOUBLE, *_PARTIAL_BOOL;
+            *_PARTIAL_DOUBLE, *_PARTIAL_BOOL;
     public:
         static const Type *BASE_TYPE();
         static const Type *PARTIAL_INT_TYPE(),
-            *PARTIAL_UINT_TYPE(), 
             *PARTIAL_DOUBLE_TYPE(),
             *PARTIAL_BOOL_TYPE();
         static const ValueClass CLASS;
@@ -660,6 +643,7 @@ namespace basil {
         Equal(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class Inequal : public BinaryEquality {
@@ -669,15 +653,15 @@ namespace basil {
         Inequal(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class BinaryRelation : public BinaryOp {
         static const Type *_BASE_TYPE, *_PARTIAL_INT, 
-            *_PARTIAL_UINT, *_PARTIAL_DOUBLE;
+            *_PARTIAL_DOUBLE;
     public:
         static const Type *BASE_TYPE();
-        static const Type *PARTIAL_INT_TYPE(),
-            *PARTIAL_UINT_TYPE(), 
+        static const Type *PARTIAL_INT_TYPE(), 
             *PARTIAL_DOUBLE_TYPE();
         static const ValueClass CLASS;
     
@@ -693,6 +677,7 @@ namespace basil {
         Less(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class LessEqual : public BinaryRelation {
@@ -702,6 +687,7 @@ namespace basil {
         LessEqual(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class Greater : public BinaryRelation {
@@ -711,6 +697,7 @@ namespace basil {
         Greater(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class GreaterEqual : public BinaryRelation {
@@ -719,6 +706,74 @@ namespace basil {
 
         GreaterEqual(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Meta fold(Stack& ctx) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
+    };
+
+    class ArrayDef : public Builtin {
+        Value *_type, *_dim;
+    public:
+        static const ValueClass CLASS;
+
+        ArrayDef(u32 line, u32 column, 
+                  const ValueClass* vc = &CLASS);
+        ~ArrayDef();
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* apply(Stack& ctx, Value* v) override;
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class Array : public Builtin {
+        vector<Value*> elts;
+    public:
+        static const ValueClass CLASS;
+
+        Array(u32 line, u32 column, 
+              const ValueClass* vc = &CLASS);
+        ~Array();
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* apply(Stack& ctx, Value* v) override;
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+        virtual bool lvalue(Stack& ctx) override;
+    };
+
+    class Index : public Builtin {
+        Value *arr, *idx;
+    public:
+        static const ValueClass CLASS;
+
+        Index(u32 line, u32 column, 
+              const ValueClass* vc = &CLASS);
+        ~Index();
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* apply(Stack& ctx, Value* v) override;
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+        virtual bool lvalue(Stack& ctx) override;
+    };
+
+    class Range : public BinaryOp {
+    public:
+        static const ValueClass CLASS;
+        Range(u32 line, u32 column, const ValueClass* vc = &CLASS);
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
+        virtual Value* clone(Stack& ctx) const override;
+    };
+
+    class Repeat : public BinaryOp {
+    public:
+        static const ValueClass CLASS;
+        Repeat(u32 line, u32 column, const ValueClass* vc = &CLASS);
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual Value* clone(Stack& ctx) const override;
     };
 
@@ -740,7 +795,7 @@ namespace basil {
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual Meta fold(Stack& ctx) override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
     };
 
     class Join : public BinaryOp {
@@ -752,7 +807,7 @@ namespace basil {
         
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual Meta fold(Stack& ctx) override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual void repr(stream& io) const override;
@@ -761,14 +816,12 @@ namespace basil {
     class Intersect : public BinaryOp {
         static const Type *_BASE_TYPE;
         map<Meta, Lambda*> _casecache;
-        map<Meta, Macro*> _macrocache;
         ustring _label;
         virtual const Type* lazyType(Stack& ctx) override;
     protected:
         void populate(Stack& ctx, map<const Type*, 
                       vector<Value*>>& types);
         void getFunctions(Stack& ctx, vector<Lambda*>& functions);
-        void getMacros(Stack& ctx, vector<Macro*>& macros);
     public:
         static const Type *BASE_TYPE();
         static const ValueClass CLASS;
@@ -779,9 +832,65 @@ namespace basil {
         virtual void bindrec(const ustring& name, const Type* type,
                              const Meta& value);
         virtual Lambda* caseFor(Stack& ctx, const Meta& value);
-        virtual Macro* macroFor(Stack& ctx, const Meta& value);
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
+    };
+
+    class If : public Builtin {
+        Value *cond, *body;
+    public:
+        static const ValueClass CLASS;
+        If(u32 line, u32 column, const ValueClass* vc = &CLASS);
+        ~If();
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class Elif : public Builtin {
+        Value *cond, *body;
+    public:
+        static const ValueClass CLASS;
+        Elif(u32 line, u32 column, const ValueClass* vc = &CLASS);
+        ~Elif();
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class Else : public Builtin {
+        Value *cond, *body;
+    public:
+        static const ValueClass CLASS;
+        Else(u32 line, u32 column, const ValueClass* vc = &CLASS);
+        ~Else();
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };
+
+    class While : public Builtin {
+        Value *cond, *body;
+    public:
+        static const ValueClass CLASS;
+        While(u32 line, u32 column, const ValueClass* vc = &CLASS);
+        ~While();
+
+        virtual Meta fold(Stack& ctx) override;
+        virtual Value* apply(Stack& ctx, Value* arg) override;
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+        virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
     };
 
     class Define : public Builtin {
@@ -797,7 +906,7 @@ namespace basil {
         virtual void format(stream& io, u32 level = 0) const override;
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual bool canApply(Stack& ctx, Value* arg) const override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
         virtual Stack::Entry* entry(Stack& ctx) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
@@ -821,7 +930,7 @@ namespace basil {
         virtual void format(stream& io, u32 level = 0) const override;
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual bool canApply(Stack& ctx, Value* arg) const override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
         virtual Stack::Entry* entry(Stack& ctx) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
@@ -839,7 +948,7 @@ namespace basil {
         ~Assign();
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual void format(stream& io, u32 level = 0) const override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
         virtual Stack::Entry* entry(Stack& ctx) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
@@ -857,17 +966,6 @@ namespace basil {
         Print(u32 line, u32 column, const ValueClass* vc = &CLASS);
         virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
-        virtual Value* clone(Stack& ctx) const override;
-    };
-
-    class Metaprint : public UnaryOp {
-    public:
-        static const Type* _BASE_TYPE;
-        static const Type* BASE_TYPE();
-        static const ValueClass CLASS;
-
-        Metaprint(u32 line, u32 column, const ValueClass* vc = &CLASS);
-        virtual Value* apply(Stack& ctx, Value* arg) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual Meta fold(Stack& ctx) override;
     };
@@ -896,8 +994,9 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
-        virtual bool lvalue(Stack& ctx) const override;
+        virtual bool lvalue(Stack& ctx) override;
     }; 
+    
 
     class Eval : public Builtin {
     public:
@@ -905,6 +1004,36 @@ namespace basil {
 
         Eval(u32 line, u32 column, 
              const ValueClass* vc = &CLASS);
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* apply(Stack& ctx, Value* v) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+    };    
+    
+    class MetaEval : public Builtin {
+        Meta val;
+    public:
+        static const ValueClass CLASS;
+
+        MetaEval(u32 line, u32 column, 
+             const ValueClass* vc = &CLASS);
+        virtual void format(stream& io, u32 level = 0) const override;
+        virtual Value* apply(Stack& ctx, Value* v) override;
+        virtual Value* clone(Stack& ctx) const override;
+        virtual void repr(stream& io) const override;
+        virtual Meta fold(Stack& ctx) override;
+    };
+
+    class Use : public Builtin {
+        Value* path;
+        Source* src;
+        Stack* env;
+        ProgramTerm* module;
+    public:
+        static const ValueClass CLASS;
+
+        Use(u32 line, u32 column, const ValueClass* vc = &CLASS);
+        ~Use();
         virtual void format(stream& io, u32 level = 0) const override;
         virtual Value* apply(Stack& ctx, Value* v) override;
         virtual Value* clone(Stack& ctx) const override;

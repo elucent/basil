@@ -22,6 +22,7 @@ namespace basil {
     void prefixPhase(buffer& b, Phase phase);
     void reportError(const Error& error);
     void useSource(Source* src);
+    Source* currentSource();
     u32 countErrors();
     void printErrors(stream& io);
 

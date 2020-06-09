@@ -20,7 +20,7 @@ namespace basil {
         "r13",
         "r14",
         "r15",
-        "",
+        "rip",
         "",
         "",
         "",
@@ -74,7 +74,7 @@ namespace basil {
     // Location
 
     Location::Location():
-        segm(INVALID), imm(nullptr) {
+        segm(INVALID), type(VOID), imm(nullptr) {
         //
     }
 
@@ -147,28 +147,31 @@ namespace basil {
         );
     }
 
+    Location Location::offset(i64 diff) const {
+        Location ret = *this;
+        if (segm == REGISTER_RELATIVE
+            || segm == STACK) ret.off += diff;
+        return ret;
+    }
+
     // CodeFrame
 
-    Location CodeFrame::NONE;
-
-    Location* CodeFrame::none() const {
+    Location* CodeFrame::none() {
         return &NONE;
+    }
+    
+    void CodeFrame::requireStack() {
+        reqstack = true;
+    }
+
+    bool CodeFrame::needsStack() const {
+        return reqstack;
     }
 
     // Passes
 
     void evaluateAll(CodeGenerator& gen, CodeFrame& frame, vector<Insn*>& insns) {
         for (Insn* i : insns) i->value(gen, frame); // force computation of value
-    }
-
-    void addDestructors(CodeFrame& frame, vector<Insn*>& insns, vector<Location>& variables) {
-        set<Location*> toClean;
-        for (Location& loc : variables) {
-            // println(_stdout, "considering variable ", &loc, " for destructor, has type ", loc.type);
-            if (isGC(loc.type)) toClean.insert(&loc);
-        }
-        for (Location* loc : toClean)
-            frame.add(new CCallInsn({ loc }, "_rcdec", VOID));
     }
 
     void hlCanonicalize(CodeFrame& frame, vector<Insn*>& insns) {
@@ -221,10 +224,10 @@ namespace basil {
         //     i->format(_stdout);
         //     print(_stdout, "        live = { ");
         //     for (Location* l : i->inset()) 
-        //         if (l->name[1] == 't') print(_stdout, l->name, " ");
+        //         if (l->segm != DATA) print(_stdout, l->name, " ");
         //     print(_stdout, "} -> { ");
         //     for (Location* l : i->outset()) 
-        //         if (l->name[1] == 't') print(_stdout, l->name, " ");
+        //         if (l->segm != DATA) print(_stdout, l->name, " ");
         //     println(_stdout, "}");
         // }
     }
@@ -315,7 +318,7 @@ namespace basil {
     // Function
 
     Function::Function(const ustring& label):
-        _stack(0), _temps(0), _label(label) {
+        _stack(0), _temps(0), _label(label), _ret(VOID) {
         //
     }
 
@@ -328,8 +331,9 @@ namespace basil {
     }
 
     Location* Function::stack(const Type* type, const ustring& name) {
-        variables.push(Location(type, name));
-        return &variables.back();
+        variables.push(new Location(type, name));
+        variables.back()->env = this;
+        return variables.back();
     }
 
     u32 Function::slot(const Type* type) {
@@ -356,8 +360,9 @@ namespace basil {
     }
 
     void Function::finalize(CodeGenerator& gen) {
+        _end = gen.newLabel();
+        if (shouldAlloca(_ret)) requireStack();
         evaluateAll(gen, *this, insns);
-        addDestructors(*this, insns, variables);
         evaluateAll(gen, *this, insns);
     }
 
@@ -369,9 +374,13 @@ namespace basil {
         //     l.allocate(STACK, -i64(slot(l.type)));
         // }
 
-        for (Location& l : variables) {
-            if (l.segm == UNASSIGNED) l.kill();
+        for (Location* l : variables) {
+            if (l->segm == UNASSIGNED) l->kill();
         }
+    }
+
+    void Function::returns(const Type* t) {
+        _ret = t;
     }
 
     void Function::format(stream& io) {
@@ -396,12 +405,18 @@ namespace basil {
         ustring s;
         fread(b, s);
         datasrcs.push(src);
-        datavars.push(Location(type, src, s));
-        return &datavars.back();
+        datavars.push(new Location(type, src, s));
+        datavars.back()->env = this;
+        return datavars.back();
     }
 
     Function* CodeGenerator::newFunction() {
         functions.push(new Function(newLabel()));
+        return functions.back();
+    }
+
+    Function* CodeGenerator::newFunction(const ustring& label) {
+        functions.push(new Function(label));
         return functions.back();
     }
 
@@ -422,8 +437,9 @@ namespace basil {
     }
 
     Location* CodeGenerator::stack(const Type* type, const ustring& name) {
-        variables.push(Location(type, name));
-        return &variables.back();
+        variables.push(new Location(type, name));
+        variables.back()->env = this;
+        return variables.back();
     }
 
     u32 CodeGenerator::slot(const Type* type) {
@@ -434,28 +450,24 @@ namespace basil {
 
     Location* CodeGenerator::locateArg(const Type* type) {
         auto it = arglocs.find(type);
-        if (it != arglocs.end()) return &it->second;
-        if (type->size() <= 8) {
-            if (type->is<NumericType>() && type->as<NumericType>()->floating())
-                return &(arglocs[type] = Location(XMM0, type));
-            return &(arglocs[type] = Location(RDI, type));
-        }
-        else {
-            return &(arglocs[type] = Location(STACK, 16, type));
-        }
+        if (it != arglocs.end()) return it->second;
+        Location* loc = nullptr;
+        if (type->is<NumericType>() && type->as<NumericType>()->floating())
+            loc = new Location(XMM0, type);
+        else loc = new Location(RDI, type);
+        loc->env = nullptr;
+        return arglocs[type] = loc;
     }
 
     Location* CodeGenerator::locateRet(const Type* type) {
         auto it = retlocs.find(type);
-        if (it != retlocs.end()) return &it->second;
-        if (type->size() <= 8) {
-            if (type->is<NumericType>() && type->as<NumericType>()->floating())
-                return &(retlocs[type] = Location(XMM0, type));
-            return &(retlocs[type] = Location(RAX, type));
-        }
-        else {
-            return &(retlocs[type] = Location(STACK, 16, type));
-        }
+        if (it != retlocs.end()) return it->second;
+        Location* loc = nullptr;
+        if (type->is<NumericType>() && type->as<NumericType>()->floating())
+            loc = new Location(XMM0, type);
+        else loc = new Location(RAX, type);
+        loc->env = this;
+        return retlocs[type] = loc;
     }
 
     u32 CodeGenerator::size() const {
@@ -478,14 +490,13 @@ namespace basil {
     void CodeGenerator::finalize(CodeGenerator& gen) {
         for (Function* fn : functions) fn->finalize(gen);
         evaluateAll(gen, *this, insns);
-        addDestructors(*this, insns, variables);
         evaluateAll(gen, *this, insns);
     }
 
     void CodeGenerator::allocate() {
-        for (Location& loc : datavars) {
-            loc.allocate(DATA, _data);
-            _data += loc.type->size();
+        for (Location* loc : datavars) {
+            loc->allocate(DATA, _data);
+            _data += loc->type->size();
         }
 
         for (Function* fn : functions) fn->allocate();
@@ -497,9 +508,13 @@ namespace basil {
         //     l.allocate(STACK, -i64(slot(l.type)));
         // }
 
-        for (Location& l : variables) {
-            if (l.segm == UNASSIGNED) l.kill();
+        for (Location* l : variables) {
+            if (l->segm == UNASSIGNED) l->kill();
         }
+    }
+
+    void CodeGenerator::returns(const Type* t) {
+        //
     }
 
     void CodeGenerator::serialize() {
@@ -554,9 +569,17 @@ namespace basil {
         return _out;
     }
     
+    set<Location*>& Insn::inset() {
+        return _in;
+    }
+    
+    set<Location*>& Insn::outset() {
+        return _out;
+    }
+    
     bool Insn::liveout(CodeFrame& gen, const set<Location*>& out) {
         for (Location* l : out) _out.insert(l);
-        _in = _out;
+        for (Location* l : _out) _in.insert(l);
         return false;
     }
 
@@ -884,6 +907,86 @@ namespace basil {
         println(io, "    ", _cached, " = ", _lhs, " xor ", _rhs);
     }
 
+    // CompareInsn
+    
+    Location* CompareInsn::lazyValue(CodeGenerator& gen, 
+                        CodeFrame& frame) {
+        return frame.stack(BOOL);
+    }
+
+    const InsnClass CompareInsn::CLASS(Insn::CLASS);
+
+    CompareInsn::CompareInsn(const char* op, Location* lhs, Location* rhs, const InsnClass* ic):
+        Insn(ic), _op(op), _lhs(lhs), _rhs(rhs) {
+        //
+    }   
+
+    bool CompareInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
+        Insn::liveout(gen, out);
+        _in.insert(_lhs);
+        _in.insert(_rhs);
+        _in.erase(_cached);
+        return false;
+    }
+
+    void CompareInsn::format(stream& io) {
+        println(io, "    ", _cached, " = ", _lhs, " ", _op, " ", _rhs);
+    }
+
+    // EqInsn
+
+    const InsnClass EqInsn::CLASS(CompareInsn::CLASS);
+
+    EqInsn::EqInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn("==", lhs, rhs, ic) {
+        //
+    }
+
+    // NotEqInsn
+    
+    const InsnClass NotEqInsn::CLASS(CompareInsn::CLASS);
+
+    NotEqInsn::NotEqInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn("!=", lhs, rhs, ic) {
+        //
+    }
+
+    // LessInsn
+
+    const InsnClass LessInsn::CLASS(CompareInsn::CLASS);
+
+    LessInsn::LessInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn("<", lhs, rhs, ic) {
+        //
+    }
+
+    // GreaterInsn
+
+    const InsnClass GreaterInsn::CLASS(CompareInsn::CLASS);
+
+    GreaterInsn::GreaterInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn(">", lhs, rhs, ic) {
+        //
+    }
+
+    // LessEqInsn
+
+    const InsnClass LessEqInsn::CLASS(CompareInsn::CLASS);
+    
+    LessEqInsn::LessEqInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn("<=", lhs, rhs, ic) {
+        //
+    }
+
+    // GreaterEqInsn
+
+    const InsnClass GreaterEqInsn::CLASS(CompareInsn::CLASS);
+
+    GreaterEqInsn::GreaterEqInsn(Location* lhs, Location* rhs, const InsnClass* ic):
+        CompareInsn(">=", lhs, rhs, ic) {
+        //
+    }
+
     // JoinInsn
 
     Location* JoinInsn::lazyValue(CodeGenerator& gen, CodeFrame& frame) {
@@ -959,6 +1062,84 @@ namespace basil {
         return false;
     }
 
+    // SizeofInsn
+
+    Location* SizeofInsn::lazyValue(CodeGenerator& gen, 
+                                CodeFrame& frame) {
+        return frame.stack(I64);
+    }
+
+    const InsnClass SizeofInsn::CLASS(Insn::CLASS);
+
+    SizeofInsn::SizeofInsn(Location* operand, const InsnClass* ic):
+        Insn(ic), _operand(operand) {
+        //
+    }     
+
+    bool SizeofInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
+        Insn::liveout(gen, out);
+        _in.insert(_operand);
+        _in.erase(_cached);
+        return false;
+    }
+
+    void SizeofInsn::format(stream& io) {
+        println(io, "    ", _cached, " = sizeof ", _operand);
+    }
+
+    // AllocaInsn
+
+    Location* AllocaInsn::lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) {
+        frame.requireStack();
+        return frame.stack(_type);
+    }
+
+    const InsnClass AllocaInsn::CLASS(Insn::CLASS);
+
+    AllocaInsn::AllocaInsn(Location* size, const Type* type, const InsnClass* ic):
+        Insn(ic), _size(size), _type(type) {
+        //
+    }   
+
+    bool AllocaInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
+        Insn::liveout(gen, out);
+        _in.insert(_size);
+        _in.erase(_cached);
+        return false;
+    }
+
+    void AllocaInsn::format(stream& io) {
+        println(io, "    ", _cached, " = (", _type, ") alloca ", _size);
+    }
+
+    // MemcpyInsn
+
+    Location* MemcpyInsn::lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) {
+        return frame.none();
+    }
+
+    const InsnClass MemcpyInsn::CLASS(Insn::CLASS);
+
+    MemcpyInsn::MemcpyInsn(Location* dst, Location* src, Location* size, 
+        const ustring& loop, const InsnClass* ic):
+        Insn(ic), _dst(dst), _src(src), _size(size), _loop(loop) {
+        //
+    }   
+
+    bool MemcpyInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
+        Insn::liveout(gen, out);
+        _in.insert(_dst);
+        _in.insert(_src);
+        _in.insert(_size);
+        return false;
+    }
+
+    void MemcpyInsn::format(stream& io) {
+        println(io, "    memcpy(", _dst, ", ", _src, ", ", _size, ")");
+    }
+
     // GotoInsn
 
     Location* GotoInsn::lazyValue(CodeGenerator& gen, 
@@ -974,11 +1155,15 @@ namespace basil {
     }
 
     bool GotoInsn::liveout(CodeFrame& frame, const set<Location*>& out) {
-        u32 size = _out.size();
-        const set<Location*>& path = frame.label(_label)->inset();
-        for (Location* l : path) _out.insert(l);
+        u64 size = _out.size();
+        Insn::liveout(frame, out);
 
-        return size != _out.size();
+        Insn* label = frame.label(_label);
+        Insn::liveout(frame, label->outset());
+
+        bool revisit = size != _out.size() || _revisit;
+        _revisit = false;
+        return revisit;
     }
     
     void GotoInsn::format(stream& io) {
@@ -1004,17 +1189,19 @@ namespace basil {
         println(io, "    if ", _lhs, " == ", _rhs, ": goto ", _label);
     }
 
-    bool IfEqualInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
-        u32 size = _out.size();
-        const set<Location*>& path = gen.label(_label)->inset();
+    bool IfEqualInsn::liveout(CodeFrame& frame, const set<Location*>& out) {
+        u64 size = _out.size();
+        Insn::liveout(frame, out);
+
+        Insn* label = frame.label(_label);
+        Insn::liveout(frame, label->outset());
         
-        for (Location* l : out) _out.insert(l);
-        for (Location* l : path) _out.insert(l);
-        _in = _out;
         _in.insert(_lhs);
         _in.insert(_rhs);
 
-        return _out.size() != size;
+        bool revisit = size != _out.size() || _revisit;
+        _revisit = false;
+        return revisit;
     }
 
     // CallInsn
@@ -1086,6 +1273,7 @@ namespace basil {
 
     Location* RetInsn::lazyValue(CodeGenerator& gen, 
                                 CodeFrame& frame) {
+        frame.returns(_operand->type);
         return frame.none();
     }
 
@@ -1118,7 +1306,7 @@ namespace basil {
 
     MovInsn::MovInsn(Location* dst, Location* src, const InsnClass* ic):
         Insn(ic), _dst(dst), _src(src) {
-        //
+        _dst->env = _src->env == _dst->env ? _dst->env : nullptr;
     }
 
     bool MovInsn::liveout(CodeFrame& gen, const set<Location*>& out) {
@@ -1220,14 +1408,6 @@ namespace basil {
     void Label::format(stream& io) {
         println(io, _label, ":");
     }
-
-    // code gen utilities
-
-    void irDestroy(CodeGenerator& gen, CodeFrame& frame, Location* value) {
-        if (isGC(value->type)) {
-            frame.add(new CCallInsn({ value }, "_rcdec", VOID));
-        }
-    }
 }
 
 void print(stream& s, basil::Location* loc) {
@@ -1244,6 +1424,27 @@ void print(basil::Location* loc) {
 namespace basil {
     // x86_64 Target
 
+    void movex86(buffer& text, buffer& data, Location* src, Location* dst) {
+        if (!*dst || !*src) return;
+        x64::printer::mov(text, data, src, dst);
+    }
+
+    void retWord(buffer& text, buffer& data, bool closeFrame) {
+        Location rbp(RBP, I64);
+        Location rsp(RSP, I64);
+
+        if (closeFrame) {
+            x64::printer::mov(text, data, &rbp, &rsp);
+            x64::printer::pop(text, data, &rbp);
+        }
+
+        x64::printer::ret(text, data);
+    }
+
+    void retObject(buffer& text, buffer& data, const ustring& end, bool closeFrame) {
+        x64::printer::jmp(text, data, "_memreturn");
+    }
+
     void Function::emitX86(buffer& text, buffer& data) {
         x64::printer::label(text, data, x64::TEXT, _label, false);
 
@@ -1255,26 +1456,79 @@ namespace basil {
         Location rsp(RSP, I64);
         Location frame(size());
 
-        if (size() > 0) {
+        if (needsStack() || size() > 0) {
             x64::printer::push(text, data, &rbp);
             x64::printer::mov(text, data, &rsp, &rbp);
-            x64::printer::sub(text, data, &frame, &rsp);
+            if (size() > 0) x64::printer::sub(text, data, &frame, &rsp);
         }
 
         for (; i < insns.size(); i ++) insns[i]->emitX86(text, data);
 
-        if (size() > 0) {
-            x64::printer::mov(text, data, &rbp, &rsp);
-            x64::printer::pop(text, data, &rbp);
-        }
+        if (shouldAlloca(_ret))
+            retObject(text, data, _end, needsStack() || size() > 0);
+        else retWord(text, data, needsStack() || size() > 0);
+    }
 
-        x64::printer::ret(text, data);
+    void prelude(buffer& text, buffer& data) {
+        Location rax(RAX, I64);
+        Location rdx(RDX, I64);
+        Location rcx(RCX, I64);
+        Location rbx(RBX, I64);
+        Location rdi(RDI, I64);
+        Location rsi(RSI, I64);
+        Location rbp(RBP, I64);
+        Location rsp(RSP, I64);
+        Location r8(R8, I64);
+        Location r15(R15, I64);
+        Location eight(IMMEDIATE, 8, I64);
+
+        // memcpy
+
+        x64::printer::label(text, data, x64::TEXT, "_memcpy", false);
+        Location relsi(RSI, 0, I64);
+        Location reldi(RDI, 0, I64);
+        movex86(text, data, &relsi, &reldi);
+        x64::printer::add(text, data, &eight, &rsi);
+        x64::printer::add(text, data, &eight, &rdi);
+        x64::printer::sub(text, data, &eight, &rdx);
+        x64::printer::jcc(text, data, "_memcpy", x64::Condition::GREATER);
+        x64::printer::jmp(text, data, &r15);
+
+        // memreturn
+        
+        Location rsisize(RSI, 0, I64);
+        Location rdisize(RDI, 0, I64);
+        Location rspsize(RSP, 0, I64);
+        Location prevbp(RBP, 0, I64);
+        Location retaddr(RBP, 8, I64);
+        Location result(RDI, 8, I64);
+        Location dst(RBP, 8, I64);
+        x64::printer::label(text, data, x64::TEXT, "_memreturn", false);
+        movex86(text, data, &prevbp, &rcx);     // base pointer
+        movex86(text, data, &retaddr, &rbx);    // return address
+        movex86(text, data, &rax, &rsi);        
+        movex86(text, data, &rsisize, &rdx);    // size
+        x64::printer::add(text, data, &rdx, &rsi);
+        x64::printer::lea(text, data, &dst, &rdi);
+        x64::printer::add(text, data, &eight, &rdx);
+
+        x64::printer::label(text, data, x64::TEXT, "_memreturn_loop", false);
+        movex86(text, data, &relsi, &reldi);
+        x64::printer::sub(text, data, &eight, &rsi);
+        x64::printer::sub(text, data, &eight, &rdi);
+        x64::printer::sub(text, data, &eight, &rdx);
+        x64::printer::jcc(text, data, "_memreturn_loop", x64::Condition::GREATER);
+        x64::printer::lea(text, data, &result, &rax);
+        movex86(text, data, &rax, &rsp);
+        movex86(text, data, &rcx, &rbp); // restore prev frame
+        x64::printer::jmp(text, data, &rbx);
     }
 
     void CodeGenerator::emitX86(buffer& text, buffer& data) {
         x64::printer::data(text, data);
         for (Data* d : datasrcs) d->emitX86Const(text, data);
         x64::printer::text(text, data);
+        prelude(text, data);
         for (Function* f : functions) f->emitX86(text, data);
         x64::printer::label(text, data, x64::TEXT, "_start", true);
         
@@ -1285,12 +1539,11 @@ namespace basil {
         Location frame(size());
         Location exit(60);
         Location code(0);
+        Location eightMB(IMMEDIATE, 8388608, I64);
 
-        if (size() > 0) {
-            x64::printer::mov(text, data, &rsp, &rbp);
-            x64::printer::sub(text, data, &frame, &rsp);
-        }
-
+        x64::printer::mov(text, data, &rsp, &rbp);
+        if (size() > 0) x64::printer::sub(text, data, &frame, &rsp);
+        
         for (Insn* i : insns) i->emitX86(text, data);
         x64::printer::mov(text, data, &exit, &rax);
         x64::printer::mov(text, data, &code, &rdi);
@@ -1325,8 +1578,8 @@ namespace basil {
     void StrData::emitX86Const(buffer& text, buffer& data) {
         u32 len = 0;
         for (u32 i = 0; i < _value.size(); i ++) len += _value[i].size();
-        x64::printer::intconst(text, data, 1); // fake ref count
         x64::printer::label(text, data, x64::DATA, _label, false);
+        while (len % 8 != 0) len ++;
         x64::printer::intconst(text, data, len);
         x64::printer::strconst(text, data, _value);
     }
@@ -1374,8 +1627,7 @@ namespace basil {
         }
         x64::printer::mov(text, data, first, _cached);
         if (_cached->type->is<NumericType>() 
-            && (_cached->type->as<NumericType>()->floating()
-                || !_cached->type->as<NumericType>()->isSigned()))
+            && _cached->type->as<NumericType>()->floating())
             x64::printer::mul(text, data, second, _cached);
         else x64::printer::imul(text, data, second, _cached);
     }
@@ -1383,15 +1635,26 @@ namespace basil {
     void DivInsn::emitX86(buffer& text, buffer& data) {
         if (!*_cached) return;
         Location rax(RAX, _lhs->type);
-        Location rdx(RDX, _lhs->type);
         Location *first = _lhs, *second = _rhs;
+
         if (*second == *_cached) {
             second = _lhs;
             first = _rhs;
         }
 
+        if (_cached->type->is<NumericType>() && 
+            _cached->type->as<NumericType>()->floating()) {
+            x64::printer::mov(text, data, first, _cached);
+            x64::printer::fdiv(text, data, second, _cached);
+            return;
+        }
+
+        x64::printer::cdq(text, data);
+        if (second->segm == DATA) {
+            x64::printer::mov(text, data, second, _cached);
+            second = _cached;
+        }
         x64::printer::mov(text, data, first, &rax);
-        x64::printer::xor_(text, data, &rdx, &rdx);
         x64::printer::idiv(text, data, second);
         x64::printer::mov(text, data, &rax, _cached);
     }
@@ -1406,8 +1669,12 @@ namespace basil {
             first = _rhs;
         }
 
+        x64::printer::cdq(text, data);
+        if (second->segm == DATA) {
+            x64::printer::mov(text, data, second, _cached);
+            second = _cached;
+        }
         x64::printer::mov(text, data, first, &rax);
-        x64::printer::xor_(text, data, &rdx, &rdx);
         x64::printer::idiv(text, data, second);
         x64::printer::mov(text, data, &rdx, _cached);
     }
@@ -1451,6 +1718,36 @@ namespace basil {
         x64::printer::not_(text, data, _cached);
     }
 
+    void EqInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::EQUAL);
+    }
+
+    void NotEqInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::NOT_EQUAL);
+    }
+
+    void LessInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::LESS);
+    }
+
+    void GreaterInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::GREATER);
+    }
+
+    void LessEqInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::LESS_EQUAL);
+    }
+
+    void GreaterEqInsn::emitX86(buffer& text, buffer& data) {
+        x64::printer::cmp(text, data, _lhs, _rhs);
+        x64::printer::setcc(text, data, _cached, x64::Condition::GREATER_EQUAL);
+    }
+
     void JoinInsn::emitX86(buffer& text, buffer& data) {
         i64 offset = 0;
         for (Location* l : _srcs) {
@@ -1473,31 +1770,42 @@ namespace basil {
 
     void MovInsn::emitX86(buffer& text, buffer& data) {
         if (!*_dst) return;
-        x64::printer::mov(text, data, _src, _dst);
+        movex86(text, data, _src, _dst);
     }
 
     void RetInsn::emitX86(buffer& text, buffer& data) {
         Location rax(RAX, _operand->type);
-        x64::printer::mov(text, data, _operand, &rax);
+        Location xmm0(XMM0, _operand->type);
+        if (_operand->type->is<NumericType>() &&
+            _operand->type->as<NumericType>()->floating())
+            x64::printer::mov(text, data, _operand, &xmm0);
+        else x64::printer::mov(text, data, _operand, &rax);
     }
     
     void CastInsn::emitX86(buffer& text, buffer& data) {
         if (_src->type->is<NumericType>() && _target->is<NumericType>()) {
+            Location rax(RAX, _src->type);
             const NumericType* st = _src->type->as<NumericType>();
             const NumericType* nt = _target->as<NumericType>();
             if (st->floating() && !nt->floating()) {
+                if (_src->segm == DATA) 
+                    x64::printer::mov(text, data, _src, &rax), _src = &rax;
                 if (st->size() == 8) 
                     x64::printer::cvttsd2si(text, data, _src, _cached);
                 if (st->size() == 4) 
                     x64::printer::cvttss2si(text, data, _src, _cached);
             }
             else if (!st->floating() && nt->floating()) {
+                if (_src->segm == DATA) 
+                    x64::printer::mov(text, data, _src, &rax), _src = &rax;
                 if (nt->size() == 8) 
                     x64::printer::cvtsi2sd(text, data, _src, _cached);
                 if (nt->size() == 4) 
                     x64::printer::cvtsi2ss(text, data, _src, _cached);
             }
             else if (st->floating() && nt->floating()) {
+                if (_src->segm == DATA) 
+                    x64::printer::mov(text, data, _src, &rax), _src = &rax;
                 if (st->size() == 4 && nt->size() == 8) 
                     x64::printer::cvtss2sd(text, data, _src, _cached);
                 if (st->size() == 8 && nt->size() == 4)
@@ -1506,14 +1814,49 @@ namespace basil {
             else {
                 if (st->size() >= nt->size()) 
                     x64::printer::mov(text, data, _src, _cached);
-                else if (nt->isSigned())
+                else 
                     x64::printer::movsx(text, data, _src, _cached);
-                else
-                    x64::printer::movzx(text, data, _src, _cached);
             }
         }
 
         // TODO: other casts
+    }
+
+    void SizeofInsn::emitX86(buffer& text, buffer& data) {
+        Location eight(IMMEDIATE, 8, I64);
+        Location rax(RAX, I64);
+        Location raxsize(RAX, 0, I64);
+        Location size = 
+            _operand->segm == REGISTER ? Location(_operand->reg, 0, I64) 
+            : Location(I64, _operand, 0, _operand->name + ".size");
+        if (_operand->segm == DATA) {
+            movex86(text, data, _operand, &rax);
+            size = raxsize;
+        }
+        movex86(text, data, &size, _cached);
+        x64::printer::add(text, data, &eight, _cached);
+    }
+
+    void AllocaInsn::emitX86(buffer& text, buffer& data) {
+        Location rsp(RSP, _cached->type);
+        x64::printer::sub(text, data, _size, &rsp);
+        movex86(text, data, &rsp, _cached);
+    }
+
+    void MemcpyInsn::emitX86(buffer& text, buffer& data) {
+        Location rdx(RDX, _size->type);
+        Location r15(R15, I64);
+        Location rdi(RDI, I64);
+        Location rsi(RSI, I64);
+        movex86(text, data, _size, &rdx);
+        movex86(text, data, _dst, &rdi);
+        movex86(text, data, _src, &rsi);
+        bool saver15 = _in.find(&r15) != _in.end() && _out.find(&r15) != _out.end();
+        if (saver15) x64::printer::push(text, data, &r15);
+        x64::printer::lea(text, data, _loop, &r15);
+        x64::printer::jmp(text, data, "_memcpy");
+        x64::printer::label(text, data, x64::TEXT, _loop, false);
+        if (saver15) x64::printer::pop(text, data, &r15);
     }
 
     void GotoInsn::emitX86(buffer& text, buffer& data) {
@@ -1526,10 +1869,12 @@ namespace basil {
     }
 
     void CallInsn::emitX86(buffer& text, buffer& data) {
-        Location rax(RAX, _operand->type);
+        Location rax(RAX, _cached->type);
         Location rdi(RDI, _operand->type);
         Location rsi(RSI, _operand->type);
         Location rdx(RDX, _operand->type);
+        Location xmm0arg(XMM0, _operand->type);
+        Location xmm0ret(XMM0, _cached->type);
         // const FunctionType* ft = _func->type->as<FunctionType>();
 
         vector<Location*> saved;
@@ -1541,9 +1886,16 @@ namespace basil {
             x64::printer::push(text, data, saved[i]);
         }
         
-        x64::printer::mov(text, data, _operand, &rdi);
+        Location* dst = _operand->type->is<NumericType>()
+            && _operand->type->as<NumericType>()->floating() ?
+            &xmm0arg : &rdi;
+        movex86(text, data, _operand, dst);
         x64::printer::call(text, data, _func);
-        if (*_cached) x64::printer::mov(text, data, &rax, _cached);
+
+        Location* ret = _operand->type->is<NumericType>()
+            && _operand->type->as<NumericType>()->floating() ?
+            &xmm0ret : &rax;
+        movex86(text, data, ret, _cached);
 
         for (i64 i = i64(saved.size()) - 1; i >= 0; i --) {
             x64::printer::pop(text, data, saved[i]);
@@ -1557,6 +1909,12 @@ namespace basil {
             Location(RSI, ANY),
             Location(RDX, ANY)
         };
+        Location xmm0(XMM0, _ret);
+        Location fpargs[] = {
+            Location(XMM0, ANY),
+            Location(XMM1, ANY),
+            Location(XMM2, ANY)
+        };
         // const FunctionType* ft = _func->type->as<FunctionType>();
 
         vector<Location*> saved;
@@ -1567,13 +1925,25 @@ namespace basil {
         for (u32 i = 0; i < saved.size(); i ++) {
             x64::printer::push(text, data, saved[i]);
         }
-        
+
         for (u32 i = 0; i < _args.size(); i ++) {
-            args[i].type = _args[i]->type;
-            x64::printer::mov(text, data, _args[i], &args[i]);
+            if (_args[i]->type->is<NumericType>() && 
+                _args[i]->type->as<NumericType>()->floating()) {
+                fpargs[i].type = _args[i]->type;
+                x64::printer::mov(text, data, _args[i], &fpargs[i]);
+            }
+            else {
+                args[i].type = _args[i]->type;
+                x64::printer::mov(text, data, _args[i], &args[i]);
+            }
         }
         x64::printer::call(text, data, _func);
-        if (*_cached) x64::printer::mov(text, data, &rax, _cached);
+        if (*_cached) {
+            if (_cached->type->is<NumericType>() && 
+                _cached->type->as<NumericType>()->floating())
+                x64::printer::mov(text, data, &xmm0, _cached);
+            else x64::printer::mov(text, data, &rax, _cached);
+        }
 
         for (i64 i = i64(saved.size()) - 1; i >= 0; i --) {
             x64::printer::pop(text, data, saved[i]);

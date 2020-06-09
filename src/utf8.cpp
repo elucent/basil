@@ -437,6 +437,7 @@ ustring escape(const ustring& s) {
         else if (s[i] == '\\') n += "\\\\";
         else if (s[i] == '\"') n += "\\\"";
         else if (s[i] == '\'') n += "\\\'";
+        else if (s[i] == '\0') n += "\\0";
         else n += s[i];
     }
     return n;

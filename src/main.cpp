@@ -81,6 +81,12 @@ void repl() {
         Stack* s = new Stack();
         program->add(t);
         program->evalChild(*s, t);
+        for (Value* v : *s) {
+            Meta m = v->fold(program->scope());
+            if (m && !m.isVoid() && !v->is<Print>())
+                println(_stdout, m);
+        }
+        println(_stdout, "");
         
         if (countErrors()) {
             printErrors(_stdout);
@@ -88,7 +94,7 @@ void repl() {
         }
         else if (level == AST && !silent) {
             println("");
-            for (Value* v : *s) v->format(_stdout);
+            for (Value* v : *s) println(_stdout, v);
             println("");
         }
 
@@ -139,6 +145,10 @@ int parseArgs(int argc, char** argv) {
             level = PARSE;
         }
         else {
+            if (!exists(*argv)) {
+                println(_stdout, "Error: cannot open source file '", (const char*)*argv, "'.");
+                return 1;
+            }
             infile = ustring(*argv);
             interactive = false;
             src = new Source(*argv);
@@ -195,7 +205,7 @@ int main(int argc, char** argv) {
             printErrors(_stdout);
             return 1;
         }
-        else if (level == AST && !silent) for (Value* v : s) v->format(_stdout);
+        else if (level == AST && !silent) for (Value* v : s) println(_stdout, v);
     }
     
     if (level >= IR) {

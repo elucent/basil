@@ -1,0 +1,15 @@
+f() ->
+    a = "hello world"
+    b = "lovely weather we're having"
+    i = 0
+    while i < 100000:
+        t = a
+        a = b
+        b = t
+        i = i + 1
+    "hello"
+
+j = 0
+while j < 1000:
+    f() print
+    j = j + 1

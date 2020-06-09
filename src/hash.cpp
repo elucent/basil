@@ -14,24 +14,21 @@ u64 raw_hash(const void* t, uint64_t size) {
 	const u64* words = (const u64*)t;
     u32 i = 0;
 	for (; i < size / 8; ++ i) {
-	    uint64_t u = *words * 4695878395758459391ul + 1337216223865348961ul;
-	    h ^= rotl(u, 7);
-	    h ^= rotl(u, 61);
-	    h *= 10646162605368431489ul;
+	    uint64_t u = *words * 4695878395758459391ul;
+		h -= u;
+	    h ^= (h >> 23);
 	    ++ words;
 	}
 	
 	const u8* bytes = (const u8*)words;
 	i *= 8;
 	for (; i < size; ++ i) {
-	    uint64_t u = *bytes * 4695878395758459391ul + 1337216223865348961ul;
-	    h ^= rotl(u, 7);
-	    h ^= rotl(u, 61);
-	    h *= 10646162605368431489ul;
+	    uint64_t u = *bytes * 4695878395758459391ul;
+		h -= u;
+	    h ^= (h >> 23);
 	    ++ bytes;
 	}
-	double d = h;
-	return *(u64*)&d;
+	return h ^ (h << 37);
 }
 
 template<>

@@ -1,4 +1,0 @@
-string s = "hello" + " world"
-s = s + "!"
-s = s + "\n"
-print s

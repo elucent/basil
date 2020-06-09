@@ -28,18 +28,15 @@ namespace basil {
         TOKEN_NEWLINE, 
         TOKEN_ASSIGN,
         TOKEN_LAMBDA,
-        TOKEN_MACRO,
-        TOKEN_METALAMBDA,
-        TOKEN_METAMACRO,
-        TOKEN_DEFINE, 
         TOKEN_DOT,
         TOKEN_PLUS,
         TOKEN_MINUS,
         TOKEN_EVAL,
         TOKEN_REF, 
-        TOKEN_BOOL;
+        TOKEN_BOOL,
+        TOKEN_QUOTE;
     
-    extern const char* TOKEN_NAMES[27];
+    extern const char* TOKEN_NAMES[24];
 
     struct Token {
         ustring value;

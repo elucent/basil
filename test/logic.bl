@@ -1,0 +1,6 @@
+bool a = 10 > 20
+
+i = 0
+while i < 10:
+    print "loop"
+    i = i + 1

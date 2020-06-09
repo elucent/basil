@@ -11,6 +11,9 @@ template<typename T, typename U>
 struct pair {
 	T first;
 	U second;
+    bool operator==(const pair& other) const {
+        return first == other.first && second == other.second;
+    }
 };
 
 template<typename T>
@@ -286,7 +289,7 @@ public:
         u64 i = h & _mask;
         T item = t;
         while (true) {
-            if (data[i].status == EMPTY) {
+            if (data[i].status == EMPTY || data[i].status == GHOST) {
                 data[i].fill(item);
                 ++ _size;
                 return;
@@ -330,6 +333,10 @@ public:
         u64 i = h & _mask;
         while (true) {
             if (data[i].status == EMPTY) return end();
+            u64 dist = (i - h) & _mask;
+            u64 oh = hash(data[i].value());
+            u64 other_dist = (i - (oh & _mask)) & _mask;
+            if (other_dist < dist) return end();
             if (data[i].status == FILLED && equals(data[i].value(), t)) {
                 return const_iterator(data + i, data + _capacity);
             }
@@ -342,6 +349,10 @@ public:
         u64 i = h & _mask;
         while (true) {
             if (data[i].status == EMPTY) return end();
+            u64 dist = (i - (h & _mask)) & _mask;
+            u64 oh = hash(data[i].value());
+            u64 other_dist = (i - (oh & _mask)) & _mask;
+            if (other_dist < dist) return end();
             if (data[i].status == FILLED && equals(data[i].value(), t)) {
                 return iterator(data + i, data + _capacity);
             }

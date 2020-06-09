@@ -158,10 +158,6 @@ namespace basil {
             view.read();
             terms.push(new BoolTerm(t.value == "true", t.line, t.column));
         }
-        else if (t.type == TOKEN_SYMBOL) {
-            view.read();
-            terms.push(new SymbolTerm(t.value, t.line, t.column));
-        }
         else if (t.type == TOKEN_IDENT) {
             view.read();
             terms.push(new VariableTerm(t.value, t.line, t.column));
@@ -179,22 +175,39 @@ namespace basil {
             view.read();
             vector<Term*> contents;
             parseEnclosed(contents, view, TOKEN_RBRACE, indent);
-            if (contents.size() == 0) 
-                terms.push(new VoidTerm(t.line, t.column));
-            else
-                terms.push(new BlockTerm(contents, t.line, t.column));
+            Term* vals = new BlockTerm({
+                new VariableTerm("record", t.line, t.column),
+                new BlockTerm(contents, t.line, t.column)
+            }, t.line, t.column);
+            terms.push(vals);
         }
         else if (t.type == TOKEN_LBRACK) {
             view.read();
             vector<Term*> contents;
-            while (view.peek().type != TOKEN_RBRACK) 
-                parsePrimary(contents, view, indent);
-            view.read();
+            parseEnclosed(contents, view, TOKEN_RBRACK, indent);
             Term* vals = new BlockTerm({
-                new VariableTerm("quote", t.line, t.column),
+                new VariableTerm("array", t.line, t.column),
                 new BlockTerm(contents, t.line, t.column)
             }, t.line, t.column);
             terms.push(vals);
+        }
+        else if (t.type == TOKEN_QUOTE) {
+            view.read();
+            if (view.peek().type == TOKEN_LAMBDA 
+                || view.peek().type == TOKEN_ASSIGN) {
+                err(view, "Cannot quote operator '", view.peek().value, "'.");
+                return;
+            }
+            vector<Term*> temp;
+            parsePrimary(temp, view, indent);
+            if (temp.size() == 0) {
+                err(view, "Quote prefix ':' requires operand, none provided.");
+                return;
+            }
+            terms.push(new BlockTerm({
+                new VariableTerm("quote", t.line, t.column),
+                temp[0]
+            }, t.line, t.column));
         }
         else if (t.type == TOKEN_MINUS) {
             view.read();
@@ -254,55 +267,28 @@ namespace basil {
                     : new BlockTerm(temp, temp[0]->line(), temp[0]->column())
             }, t.line, t.column));
         }
-        else if (t.type == TOKEN_LAMBDA || t.type == TOKEN_METALAMBDA) {
+        else if (t.type == TOKEN_LAMBDA) {
+            if (terms.size() == 0) {
+                err(view, "No argument provided in function definition.");
+                return;
+            }
             view.read();
-            Term* arg = terms.size() ? terms.back()
-                : new VoidTerm(t.line, t.column);
-            if (terms.size()) terms.pop();
+            Term* arg = new BlockTerm(terms, terms[0]->line(), terms[0]->column());
+            terms.clear();
             vector<Term*> temp;
-            parseChunk(temp, view, indent, false);
+            if (view.peek().type == TOKEN_NEWLINE 
+                || view.peek().type == TOKEN_NONE) {
+                view.read();
+                u32 c = view.peek().column;
+                parseIndented(temp, view, c, indent);
+            }   
+            else parseLine(temp, view, indent, false);
             terms.push(new BlockTerm({
                 new VariableTerm(
-                    t.type == TOKEN_LAMBDA ? "lambda" : "metalambda", 
+                    "lambda", 
                     t.line, t.column
                 ),
                 arg,
-                temp.size() == 1 ? temp[0]
-                    : new BlockTerm(temp, temp[0]->line(), temp[0]->column())
-            }, t.line, t.column));
-        }
-        else if (t.type == TOKEN_MACRO || t.type == TOKEN_METAMACRO) {
-            view.read();
-            Term* arg = terms.size() ? terms.back()
-                : new VoidTerm(t.line, t.column);
-            if (terms.size()) terms.pop();
-            vector<Term*> temp;
-            parseChunk(temp, view, indent, false);
-            terms.push(new BlockTerm({
-                new VariableTerm(
-                    t.type == TOKEN_MACRO ? "macro" : "metamacro", 
-                    t.line, 
-                    t.column
-                ),
-                arg,
-                temp.size() == 1 ? temp[0]
-                    : new BlockTerm(temp, temp[0]->line(), temp[0]->column())
-            }, t.line, t.column));
-        }
-        else if (t.type == TOKEN_DEFINE) {
-            view.read();
-            if (terms.size() == 0) {
-                err(view, "No left term provided to define operator.");
-                return;
-            }
-            Term* dst = terms.size() == 1 ? terms[0]
-                : new BlockTerm(terms, terms[0]->line(), terms[0]->column());
-            terms.clear();
-            vector<Term*> temp;
-            parseChunk(temp, view, indent, false);
-            terms.push(new BlockTerm({
-                new VariableTerm("define", t.line, t.column),
-                dst,
                 temp.size() == 1 ? temp[0]
                     : new BlockTerm(temp, temp[0]->line(), temp[0]->column())
             }, t.line, t.column));
@@ -317,7 +303,13 @@ namespace basil {
                 : new BlockTerm(terms, terms[0]->line(), terms[0]->column());
             terms.clear();
             vector<Term*> temp;
-            parseChunk(temp, view, indent, false);
+            if (view.peek().type == TOKEN_NEWLINE 
+                || view.peek().type == TOKEN_NONE) {
+                view.read();
+                u32 c = view.peek().column;
+                parseIndented(temp, view, c, indent);
+            }   
+            else parseChunk(temp, view, indent, false);
             terms.push(new BlockTerm({
                 new VariableTerm("assign", t.line, t.column),
                 dst,

@@ -4,6 +4,6 @@ FNAME=$1
 # trap 'tmp="BASH_COMMAND"; eval echo "${!tmp}"' DEBUG
 ./basil $FNAME > ${FNAME%.bl}.s
 as ${FNAME%.bl}.s -o ${FNAME%.bl}.o
-ld ${FNAME%.bl}.o -o ${FNAME%.bl}
-gdb ./${FNAME%.bl}
+ld lib/core.o ${FNAME%.bl}.o -o ${FNAME%.bl}
+./${FNAME%.bl}
 rm ${FNAME%.bl}.s ${FNAME%.bl}.o ${FNAME%.bl}

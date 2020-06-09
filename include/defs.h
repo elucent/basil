@@ -108,6 +108,10 @@ namespace basil {
     class IntersectionType;
     class FunctionType;
 
+    // import.h
+
+    class Module;
+
     // meta.h
     class Meta;
     class MetaRC;
@@ -115,11 +119,9 @@ namespace basil {
     class MetaList;
     class MetaTuple;
     class MetaArray;
-    class MetaBlock;
     class MetaUnion;
     class MetaIntersect;
     class MetaFunction;
-    class MetaMacro;
 
     // term.h
 

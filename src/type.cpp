@@ -55,15 +55,19 @@ namespace basil {
         print(io, _key);
     }
 
+    bool Type::wildcard() const {
+        return this == ANY;
+    }
+
     // NumericType
 
     const TypeClass NumericType::CLASS(Type::CLASS);
 
-    NumericType::NumericType(u32 size, bool floating, bool sign, 
+    NumericType::NumericType(u32 size, bool floating, 
                              const TypeClass* tc):
-        Type("", size, tc), _floating(floating), _signed(sign) {
+        Type("", size, tc), _floating(floating) {
         if (floating) _key += "f";
-        else _key += sign ? "i" : "u";
+        else _key += "i";
         buffer b;
         fprint(b, size * 8);
         while (b) _key += b.read();
@@ -71,10 +75,6 @@ namespace basil {
 
     bool NumericType::floating() const {
         return _floating;
-    }
-
-    bool NumericType::isSigned() const {
-        return _signed;
     }
 
     bool NumericType::implicitly(const Type* other) const {
@@ -86,7 +86,7 @@ namespace basil {
             return nt->_floating && nt->_size >= _size;
         }
         else {
-            return !nt->_floating && nt->_signed == _signed;
+            return !nt->_floating;
         }
     }
 
@@ -171,82 +171,16 @@ namespace basil {
         }
         print(io, ")");
     }
-        
-    // BlockType
-
-    const TypeClass BlockType::CLASS(Type::CLASS);
-
-    BlockType::BlockType(const vector<const Type*>& members,
-                const TypeClass* tc): 
-        Type("", 0, tc), _members(members) {
-        _key += "[T";
-        for (const Type* t : members) {
-            _key += " ", _key += t->key();
-        }
-        _key += "]";
-    }
-                
-    const vector<const Type*>& BlockType::members() const {
-        return _members;
-    }
-    
-    const Type* BlockType::member(u32 i) const {
-        return _members[i];
-    }
-    
-    u32 BlockType::count() const {
-        return _members.size();
-    }
-    
-    bool BlockType::implicitly(const Type* other) const {
-        if (Type::implicitly(other)) return true;
-        if (!other->is<BlockType>()) return false;
-
-        const BlockType* tt = other->as<BlockType>();
-        if (tt->_members.size() != _members.size()) return false;
-
-        for (u32 i = 0; i < _members.size(); ++ i) {
-            if (!_members[i]->implicitly(tt->_members[i])) return false;
-        }
-
-        return true;
-    }
-    
-    bool BlockType::explicitly(const Type* other) const {
-        if (Type::implicitly(other)) return true;
-
-        if (other == TYPE) {
-            bool anyNonType = false;
-            for (const Type* t : _members) if (t != TYPE) anyNonType = true;
-            if (!anyNonType) return true;
-        }
-
-        if (!other->is<BlockType>()) return false;
-
-        const BlockType* tt = other->as<BlockType>();
-        if (tt->_members.size() != _members.size()) return false;
-
-        for (u32 i = 0; i < _members.size(); ++ i) {
-            if (!_members[i]->explicitly(tt->_members[i])) return false;
-        }
-
-        return true;
-    }
-    
-    void BlockType::format(stream& io) const {
-        print(io, "[");
-        bool first = true;
-        for (const Type* t : _members) {
-            if (!first) print(io, ", ");
-            first = false;
-            t->format(io);
-        }
-        print(io, "]");
-    }
 
     // ArrayType
 
     const TypeClass ArrayType::CLASS(Type::CLASS);
+    
+    ArrayType::ArrayType(const Type* element, const TypeClass* tc):
+        Type("", 0, tc), _element(element), _count(-1) {
+        _size = 8; // ref
+        _key = _element->key() + "[]";
+    }
 
     ArrayType::ArrayType(const Type* element, u32 size,
                 const TypeClass* tc): 
@@ -256,13 +190,30 @@ namespace basil {
         fprint(b, _element->key(), "[", _count, "]");
         fread(b, _key);
     }
+
+    const Type* unionOf(const vector<const Type*>& elements) {
+        set<const Type*> types;
+        for (const Type* t : elements) types.insert(t);
+        if (types.size() == 1) return *types.begin();
+        return find<UnionType>(types);
+    }
+
+    ArrayType::ArrayType(const vector<const Type*>& elements,
+                         const TypeClass* tc):
+        ArrayType(unionOf(elements), elements.size(), tc) {
+        //
+    }
                 
     const Type* ArrayType::element() const {
         return _element;
     }
     
-    u32 ArrayType::count() const {
+    i64 ArrayType::count() const {
         return _count;
+    }
+
+    bool ArrayType::sized() const {
+        return _count >= 0;
     }
     
     bool ArrayType::implicitly(const Type* other) const {
@@ -277,7 +228,9 @@ namespace basil {
         if (!other->is<ArrayType>()) return false;
 
         const ArrayType* at = other->as<ArrayType>();
-        return _element->implicitly(at->element()) && _count == at->count();   
+        if (!sized() && at->sized()) return false;
+        if (sized() && at->sized() && _count != at->_count) return false;
+        return _element->implicitly(at->element());   
     }
     
     bool ArrayType::explicitly(const Type* other) const {
@@ -292,11 +245,18 @@ namespace basil {
         if (!other->is<ArrayType>()) return false;
 
         const ArrayType* at = other->as<ArrayType>();
-        return _element->explicitly(at->element()) && _count == at->count();   
+        if (!sized() && at->sized()) return false;
+        if (sized() && at->sized() && _count != at->_count) return false;
+        return _element->explicitly(at->element());   
     }
     
     void ArrayType::format(stream& io) const {
-        print(io, _element, "[", _count, "]");
+        if (_count < 0) print(io, _element, "[]");
+        else print(io, _element, "[", _count, "]");
+    }
+
+    bool ArrayType::wildcard() const {
+        return _element == ANY;
     }
 
     // UnionType
@@ -341,7 +301,7 @@ namespace basil {
         print(io, "(");
         bool first = true;
         for (const Type* t : _members) {
-            if (!first) print(io, " | ");
+            if (!first) print(io, "|");
             first = false;
             t->format(io);
         }
@@ -492,72 +452,8 @@ namespace basil {
     void EmptyType::format(stream& io) const {
         print(io, "[]");
     }
-    
-    // MacroType
 
-    const TypeClass MacroType::CLASS(Type::CLASS);
-
-    MacroType::MacroType(const Type* arg, bool quoting, 
-                         const vector<Constraint>& cons,
-                         const TypeClass* tc):
-        Type("", 0, tc), _arg(arg), _cons(cons), _quoting(quoting) {
-        _key += (quoting ? "[QM " : "[M ");
-        _key += arg->key();
-        _key += " { ";
-        for (auto& con : cons) _key += con.key() + " ";
-        _key += "} ";
-        _key += "]";
-    }
-
-    MacroType::MacroType(const Type* arg,
-                         const vector<Constraint>& cons,
-                         const TypeClass* tc):
-        MacroType(arg, false, cons, tc) {
-        //
-    }
-
-    const Type* MacroType::arg() const {
-        return _arg;
-    }
-
-    bool MacroType::quoting() const {
-        return _quoting;
-    }
-        
-    const vector<Constraint>& MacroType::constraints() const {
-        return _cons;
-    }
-
-    bool MacroType::conflictsWith(const Type* other) const {
-        if (!other->is<MacroType>()) return true;
-        const MacroType* ft = other->as<MacroType>();
-        if (ft->_arg != _arg) return false; 
-        for (auto& a : _cons) for (auto& b : ft->_cons) {
-            if (a.conflictsWith(b)) return true;
-        }
-        return false;
-    }
-
-    bool MacroType::implicitly(const Type* other) const {
-        if (Type::implicitly(other)) return true;
-        if (!other->is<MacroType>()) return false;
-
-        const MacroType* ft = other->as<MacroType>();
-
-        return ft->_arg == _arg && ft->_quoting == _quoting;
-    }
-
-    bool MacroType::explicitly(const Type* other) const {
-        return implicitly(other);
-    }
-
-    void MacroType::format(stream& io) const {
-        print(io, "(", _arg, _quoting ? " quoting-macro)" : " macro)");
-    }
-
-    Constraint MacroType::matches(Meta fr) const {
-        return maxMatch(_cons, fr);
-    }
+    // FunctionType
 
     const TypeClass FunctionType::CLASS(Type::CLASS);
 
@@ -612,7 +508,6 @@ namespace basil {
     }
 
     bool FunctionType::conflictsWith(const Type* other) const {
-        if (other->is<MacroType>()) return true;
         if (!other->is<FunctionType>()) return false;
         const FunctionType* ft = other->as<FunctionType>();
         if (ft->_arg != _arg && ft->_ret != _ret) return false; 
@@ -742,16 +637,12 @@ namespace basil {
         else return nullptr;
     }
 
-    const Type *I8 = find<NumericType>(1, false, true), 
-               *I16 = find<NumericType>(2, false, true), 
-               *I32 = find<NumericType>(4, false, true), 
-               *I64 = find<NumericType>(8, false, true), 
-               *U8 = find<NumericType>(1, false, false), 
-               *U16 = find<NumericType>(2, false, false), 
-               *U32 = find<NumericType>(4, false, false), 
-               *U64 = find<NumericType>(8, false, false), 
-               *FLOAT = find<NumericType>(4, true, true), 
-               *DOUBLE = find<NumericType>(8, true, true),
+    const Type *I8 = find<NumericType>(1, false), 
+               *I16 = find<NumericType>(2, false), 
+               *I32 = find<NumericType>(4, false), 
+               *I64 = find<NumericType>(8, false), 
+               *FLOAT = find<NumericType>(4, true), 
+               *DOUBLE = find<NumericType>(8, true),
                *BOOL = find<Type>("bool", 1), 
                *TYPE = find<Type>("type", 4), 
                *SYMBOL = find<Type>("symbol", 4),
@@ -761,9 +652,10 @@ namespace basil {
                *ANY = find<Type>("any", 1),
                *UNDEFINED = find<Type>("undefined", 1),
                *STRING = find<Type>("string", 8),
-               *CHAR = find<Type>("char", 4);
+               *CHAR = find<Type>("char", 4),
+               *END = find<Type>("end", 1);
     
-    bool isGC(const Type* t) {
+    bool shouldAlloca(const Type* t) {
         return t == STRING 
             || t->is<ListType>();
     }

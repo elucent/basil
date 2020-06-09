@@ -154,7 +154,10 @@ namespace basil {
 
             void strconst(buffer& text, buffer& data, const ustring& value) {
                 indent(data);
-                fprintln(data, ".ascii \"", escape(value), "\"");
+                buffer b;
+                fprint(b, escape(value));
+                for (int i = value.size(); i % 8 != 0; i ++) b.write('\\'), b.write('0');
+                fprintln(data, ".ascii \"", b, "\"");
             }
 
             void text(buffer& text, buffer& data) {
@@ -257,6 +260,10 @@ namespace basil {
                 printArg(text, src);
                 fprintln(text, "");
             }
+
+            void fdiv(buffer& text, buffer& data, Location* src, Location* dst) {
+                binary(text, data, src, dst, "div", fdiv);
+            }
             
             void cmp(buffer& text, buffer& data, Location* src, Location* dst) {
                 binary(text, data, src, dst, "cmp", cmp);
@@ -280,11 +287,6 @@ namespace basil {
                 fprint(text, " ");
                 printArg(text, operand);
                 fprintln(text, "");
-            }
-
-            void cdq(buffer& text, buffer& data) {
-                indent(text);
-                fprintln(text, "cdq");
             }
 
             void movsx(buffer& text, buffer& data, Location* src, Location* dst) {
@@ -365,6 +367,13 @@ namespace basil {
                 if (target != dst) mov(text, data, target, dst);
             }
 
+            void jmp(buffer& text, buffer& data, Location* addr) {
+                indent(text);
+                fprint(text, "jmp *");
+                printArg(text, addr);
+                fprintln(text, "");
+            }
+
             void jmp(buffer& text, buffer& data, const ustring& label) {
                 indent(text);
                 fprintln(text, "jmp ", label);
@@ -418,6 +427,11 @@ namespace basil {
                 fprint(text, " ");
                 printArg(text, dst);
                 fprintln(text, "");
+            }
+
+            void cdq(buffer& text, buffer& data) {
+                indent(text);
+                fprintln(text, "cdq");
             }
         }
 

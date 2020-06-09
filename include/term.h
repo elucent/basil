@@ -156,24 +156,6 @@ namespace basil {
         virtual void repr(stream& io) const override;
     };
 
-    class SymbolTerm : public Term {
-        ustring _name;
-    public:
-        static const TermClass CLASS;
-
-        SymbolTerm(const ustring& name, u32 line, u32 column,
-                 const TermClass* tc = &CLASS);
-        const ustring& name() const;
-        virtual void format(stream& io, u32 level = 0) const override;
-        virtual void eval(Stack& stack) override;
-        virtual bool equals(const Term* other) const override;
-        virtual u64 hash() const override;
-        virtual Term* clone() const override;
-        virtual const Type* type() const override;
-        virtual Meta fold() const override;
-        virtual void repr(stream& io) const override;
-    };
-
     class VoidTerm : public Term {
     public:
         static const TermClass CLASS;

@@ -20,18 +20,15 @@ namespace basil {
         TOKEN_NEWLINE = 14, 
         TOKEN_ASSIGN = 15,
         TOKEN_LAMBDA = 16,
-        TOKEN_MACRO = 17,
-        TOKEN_METALAMBDA = 18,
-        TOKEN_METAMACRO = 19,
-        TOKEN_DEFINE = 20, 
-        TOKEN_DOT = 21,
-        TOKEN_PLUS = 22,
-        TOKEN_MINUS = 23,
-        TOKEN_EVAL = 24,
-        TOKEN_BOOL = 25,
-        TOKEN_REF = 26;
+        TOKEN_DOT = 17,
+        TOKEN_PLUS = 18,
+        TOKEN_MINUS = 19,
+        TOKEN_EVAL = 20,
+        TOKEN_BOOL = 21,
+        TOKEN_REF = 22,
+        TOKEN_QUOTE = 23;
     
-    const char* TOKEN_NAMES[27] = {
+    const char* TOKEN_NAMES[24] = {
         "none",
         "ident",
         "string",
@@ -49,16 +46,13 @@ namespace basil {
         "newline",
         "assign",
         "lambda",
-        "macro",
-        "metalambda",
-        "metamacro",
-        "define",
         "dot",
         "plus",
         "minus",
         "eval",
         "bool",
-        "ref"
+        "ref",
+        "quote"
     };
 
     Token::Token(): type(TOKEN_NONE) {
@@ -301,12 +295,29 @@ namespace basil {
         }
     }
 
+    void scanPrefixColon(Token& t, Source::View& view) {
+        if (isDelimiterToken(view)) 
+            return t = getDelimiterToken(view.read(), view), void();
+
+        t.value += view.read();
+
+        // special colon cases
+        if (view.peek() == ':') {
+            view.read();
+
+            // :: is identifier
+            if (view.peek() != ':' && isDelimiter(view))
+                t.type = TOKEN_IDENT, t.value += ':';
+            else view.rewind();
+        }
+    }
+
     void scanPrefixOp(Token& t, Source::View& view) {
         t.value += view.read();
         
         // treat as identifier if followed by special symbol
         if (view.peek() == '-' || view.peek() == '+' || view.peek() == '='
-            || view.peek() == '>' || view.peek() == '<' || view.peek() == '!' 
+            || view.peek() == '>' || view.peek() == '!' 
             || view.peek() == '~' || isClosingDelimiter(view)) {
             t.type = TOKEN_IDENT, scanIdentifier(t, view);
         }
@@ -329,10 +340,6 @@ namespace basil {
             err(PHASE_LEX, view.source(), view.line(), view.column(),
                 "Identifiers may not begin with underscores.");
         if (t.value == "->") t.type = TOKEN_LAMBDA, t.value = "";
-        if (t.value == "-<") t.type = TOKEN_MACRO, t.value = "";
-        if (t.value == "=>") t.type = TOKEN_METALAMBDA, t.value = "";
-        if (t.value == "=<") t.type = TOKEN_METAMACRO, t.value = "";
-        if (t.value == ":=") t.type = TOKEN_DEFINE, t.value = "";
         if (t.value == "=") t.type = TOKEN_ASSIGN, t.value = "";
         if (t.value == "true" || t.value == "false") t.type = TOKEN_BOOL;
     }
@@ -340,18 +347,9 @@ namespace basil {
     Token scan(Source::View& view) {
         uchar c = view.peek();
         Token t;
-        if (c == '\\') {
+        if (c == '#') {
             // line comments
             while (view.peek() != '\n') view.read();
-            view.read();
-        }
-        else if (c == '#') {
-            t = fromType(TOKEN_SYMBOL, view);
-            view.read();
-            scanIdentifier(t, view);
-            if (t.type != TOKEN_SYMBOL)
-                err(PHASE_LEX, view.source(), view.line(), view.column(),
-                    "Illegal symbol literal '", t.value, "' in input.");
         }
         else if (c == '.') {
             t = fromType(TOKEN_IDENT, view);
@@ -364,6 +362,10 @@ namespace basil {
         else if (c == '+') {
             t = fromType(TOKEN_PLUS, view);
             scanPrefixOp(t, view);
+        }
+        else if (c == ':') {
+            t = fromType(TOKEN_QUOTE, view);
+            scanPrefixColon(t, view);
         }
         else if (c == '!') {
             t = fromType(TOKEN_EVAL, view);

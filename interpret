@@ -1,0 +1,6 @@
+echo "print: " $* > _tmp.bl
+./basil _tmp.bl > _tmp.s
+as _tmp.s -o _tmp.o
+ld lib/core.o _tmp.o -o _tmp
+./_tmp
+rm _tmp.bl _tmp.s _tmp.o _tmp

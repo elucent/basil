@@ -11,4 +11,8 @@ for src obj in OBJS do
     end
 end
 
+if newer("lib/core.c" "lib/core.o") do
+    run(CC FLAGS "-c" "lib/core.c" "-o" "lib/core.o")
+end
+
 run(CC FLAGS outputs(OBJS) "-o" TARGET)

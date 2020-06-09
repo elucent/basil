@@ -30,6 +30,7 @@ namespace basil {
         R13 = 13,
         R14 = 14,
         R15 = 15,
+        RIP = 16,
         XMM0 = 32,
         XMM1 = 33,
         XMM2 = 34,
@@ -43,6 +44,8 @@ namespace basil {
 
     extern const char* REGISTER_NAMES[65];
 
+    class CodeFrame;
+
     struct Location {
         Segment segm;
         i64 off;
@@ -51,6 +54,7 @@ namespace basil {
         Data* imm;
         Location* src = nullptr;
         ustring name;
+        CodeFrame* env = nullptr;
 
         Location();
         Location(i64 imm);
@@ -65,12 +69,13 @@ namespace basil {
         void allocate(Segment segm_in, i64 offset);
         void allocate(Register reg_in);
         void kill();
-
+        Location offset(i64 diff) const;
         bool operator==(const Location& other) const;
     };
 
     class CodeFrame {
-        static Location NONE;
+        Location NONE;
+        bool reqstack = false;
     public:
         virtual Location* stack(const Type* type) = 0;
         virtual Location* stack(const Type* type, const ustring& name) = 0;
@@ -80,16 +85,20 @@ namespace basil {
         virtual void finalize(CodeGenerator& gen) = 0;
         virtual void allocate() = 0;
         virtual Insn* label(const ustring& name) = 0;
-        Location* none() const;
+        virtual void returns(const Type* type) = 0;
+        void requireStack();
+        bool needsStack() const;
+        Location* none();
     };
 
-    class Function : public CodeFrame{
+    class Function : public CodeFrame {
         u32 _stack;
         u32 _temps;
         vector<Insn*> insns;
-        vector<Location> variables;
+        vector<Location*> variables;
         map<ustring, Label*> labels;
-        ustring _label;
+        ustring _label, _end;
+        const Type* _ret;
     public:
         Function(const ustring& label);
         Location* stack(const Type* type) override;
@@ -100,6 +109,7 @@ namespace basil {
         Insn* label(const ustring& name) override;
         void finalize(CodeGenerator& gen) override;
         void allocate() override;
+        void returns(const Type* ret) override;
         void format(stream& io);
         const ustring& label() const;
 
@@ -115,15 +125,16 @@ namespace basil {
         vector<Data*> datasrcs;
         vector<Insn*> insns;
         vector<Function*> functions;
-        vector<Location> variables;
-        vector<Location> datavars;
+        vector<Location*> variables;
+        vector<Location*> datavars;
         map<ustring, Label*> labels;
-        map<const Type*, Location> arglocs;
-        map<const Type*, Location> retlocs;
+        map<const Type*, Location*> arglocs;
+        map<const Type*, Location*> retlocs;
     public:
         CodeGenerator();
         Location* data(const Type* type, Data* src);
         Function* newFunction();
+        Function* newFunction(const ustring& label);
         ustring newLabel();
         Location* stack(const Type* type) override;
         Location* stack(const Type* type, const ustring& name) override;
@@ -133,6 +144,7 @@ namespace basil {
         Insn* label(const ustring& name) override;
         void finalize(CodeGenerator& gen) override;
         void allocate() override;
+        void returns(const Type* ret) override;
         Location* locateArg(const Type* type);
         Location* locateRet(const Type* type);
         void serialize();
@@ -164,6 +176,8 @@ namespace basil {
         virtual void format(stream& io) = 0;
         const set<Location*>& inset() const;
         const set<Location*>& outset() const;
+        set<Location*>& inset();
+        set<Location*>& outset();
         virtual bool liveout(CodeFrame& gen, const set<Location*>& out);
 
         virtual void emitX86(buffer& text, buffer& data);
@@ -333,7 +347,7 @@ namespace basil {
         static const InsnClass CLASS;
         DivInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
 
-        virtual void format(stream& io) override;
+        virtual void format(stream& io) override;     
         virtual void emitX86(buffer& text, buffer& data) override;
     };
 
@@ -382,12 +396,60 @@ namespace basil {
         virtual void emitX86(buffer& text, buffer& data) override;
     };
 
-    // class EqInsn;
-    // class NotEqInsn;
-    // class LessInsn;
-    // class GreaterInsn;
-    // class LessEqInsn;
-    // class GreaterEqInsn;
+    class CompareInsn : public Insn {
+    protected:
+        const char* _op;
+        Location *_lhs, *_rhs;
+        virtual Location* lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) override;
+    public:
+        static const InsnClass CLASS;
+        CompareInsn(const char* op, Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);        
+        bool liveout(CodeFrame& gen, const set<Location*>& out) override;
+        virtual void format(stream& io) override;
+    };
+
+    class EqInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        EqInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class NotEqInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        NotEqInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class LessInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        LessInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class GreaterInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        GreaterInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class LessEqInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        LessEqInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class GreaterEqInsn : public CompareInsn {
+    public:
+        static const InsnClass CLASS;
+        GreaterEqInsn(Location* lhs, Location* rhs, const InsnClass* ic = &CLASS);
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
 
     class JoinInsn : public Insn {
         vector<Location*> _srcs;
@@ -434,8 +496,50 @@ namespace basil {
         virtual void emitX86(buffer& text, buffer& data) override;
     };
 
+    class SizeofInsn : public Insn {
+    protected:
+        Location *_operand;
+        virtual Location* lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) override;
+    public:
+        static const InsnClass CLASS;
+        SizeofInsn(Location* operand, const InsnClass* ic = &CLASS);        
+        bool liveout(CodeFrame& gen, const set<Location*>& out) override;
+        virtual void format(stream& io) override;
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class AllocaInsn : public Insn {
+    protected:
+        Location *_size;
+        const Type* _type;
+        virtual Location* lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) override;
+    public:
+        static const InsnClass CLASS;
+        AllocaInsn(Location* size, const Type* type, const InsnClass* ic = &CLASS);        
+        bool liveout(CodeFrame& gen, const set<Location*>& out) override;
+        virtual void format(stream& io) override;
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
+    class MemcpyInsn : public Insn {
+    protected:
+        Location *_dst, *_src, *_size;
+        ustring _loop;
+        virtual Location* lazyValue(CodeGenerator& gen, 
+                                   CodeFrame& frame) override;
+    public:
+        static const InsnClass CLASS;
+        MemcpyInsn(Location* dst, Location* src, Location* size, const ustring& loop, const InsnClass* ic = &CLASS);        
+        bool liveout(CodeFrame& gen, const set<Location*>& out) override;
+        virtual void format(stream& io) override;
+        virtual void emitX86(buffer& text, buffer& data) override;
+    };
+
     class GotoInsn : public Insn {
         ustring _label;
+        bool _revisit = true;
     protected:
         virtual Location* lazyValue(CodeGenerator& gen,
                                    CodeFrame& frame) override;
@@ -451,6 +555,7 @@ namespace basil {
     class IfEqualInsn : public Insn {
         Location *_lhs, *_rhs;
         ustring _label;
+        bool _revisit = true;
     protected:
         virtual Location* lazyValue(CodeGenerator& gen,
                                    CodeFrame& frame) override;

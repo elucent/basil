@@ -1,14 +1,19 @@
 var SRCS = files(".") with ending(".cpp")
 var OBJS = swap(".cpp" ".o") on expand(SRCS)
 
-var CC = "g++"
-var FLAGS = "-std=c++14 -g3 -Wall -Wno-strict-aliasing -pedantic -Iinclude"
+var CXX = "g++"
+var CXXFLAGS = "-std=c++14 -g3 -Wall -Wno-strict-aliasing -pedantic -Iinclude"
+var CC = "gcc"
 var TARGET = "basil"
 
 for src obj in OBJS do
     if newer(src obj) do
-        run(CC FLAGS "-c" src "-o" obj)
+        run(CXX CXXFLAGS "-c" src "-o" obj)
     end
 end
 
-run(CC FLAGS outputs(OBJS) "-o" TARGET)
+run(CXX CXXFLAGS outputs(OBJS) "-o" TARGET)
+
+if newer("lib/core.c" "lib/core.o") do
+    run(CC "-std=gnu99 -Os -Wall -fno-stack-protector" "-c" "lib/core.c" "-o" "lib/core.o")
+end

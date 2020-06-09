@@ -62,6 +62,10 @@ namespace basil {
         _src = src;
     }
 
+    Source* currentSource() {
+        return _src;
+    }
+
     void reportError(const Error& error) {
         ustring s;
         buffer b = error.message;

@@ -57,6 +57,7 @@ namespace basil {
         virtual bool implicitly(const Type* other) const;
         virtual bool explicitly(const Type* other) const;
         virtual bool conflictsWith(const Type* other) const;
+        virtual bool wildcard() const;
         const ustring& key() const;
         virtual void format(stream& io) const;
         u32 id() const;
@@ -83,45 +84,36 @@ namespace basil {
     };
 
     class NumericType : public Type {
-        bool _floating, _signed;
+        bool _floating;
     public:
         static const TypeClass CLASS;
 
-        NumericType(u32 size, bool floating, bool sign,
+        NumericType(u32 size, bool floating,
                     const TypeClass* tc = &CLASS);
         bool floating() const;
-        bool isSigned() const;
         virtual bool implicitly(const Type* other) const override;
         virtual bool explicitly(const Type* other) const override;
     };
 
-    class BlockType : public Type {
-        vector<const Type*> _members;
-    public:
-        static const TypeClass CLASS;
-
-        BlockType(const vector<const Type*>& members,
-                  const TypeClass* tc = &CLASS);
-        const vector<const Type*>& members() const;
-        const Type* member(u32 i) const;
-        u32 count() const;
-        virtual bool implicitly(const Type* other) const override;
-        virtual bool explicitly(const Type* other) const override;
-        virtual void format(stream& io) const override;
-    };
+    const Type* unionOf(const vector<const Type*>& elements);
 
     class ArrayType : public Type {
         const Type* _element;
-        u32 _count;
+        i64 _count;
     public:
         static const TypeClass CLASS;
 
+        ArrayType(const Type* element, const TypeClass* tc = &CLASS);
         ArrayType(const Type* element, u32 size,
                   const TypeClass* tc = &CLASS);
+        ArrayType(const vector<const Type*>& elements,
+                  const TypeClass* tc = &CLASS);
         const Type* element() const;
-        u32 count() const;
+        i64 count() const;
+        bool sized() const;
         virtual bool implicitly(const Type* other) const override;
         virtual bool explicitly(const Type* other) const override;
+        virtual bool wildcard() const override;
         virtual void format(stream& io) const override;
     };
 
@@ -205,29 +197,6 @@ namespace basil {
         virtual void format(stream& io) const override;
     };
 
-    class MacroType : public Type {
-        const Type *_arg;
-        vector<Constraint> _cons;
-        bool _quoting;
-    public:
-        static const TypeClass CLASS;
-
-        MacroType(const Type* arg, bool quoting,
-                  const vector<Constraint>& cons = {},
-                  const TypeClass* tc = &CLASS);
-        MacroType(const Type* arg, 
-                  const vector<Constraint>& cons = {},
-                  const TypeClass* tc = &CLASS);
-        const Type* arg() const;
-        bool quoting() const;
-        const vector<Constraint>& constraints() const;
-        virtual bool conflictsWith(const Type* other) const override;
-        virtual bool implicitly(const Type* other) const override;
-        virtual bool explicitly(const Type* other) const override;
-        virtual void format(stream& io) const override;
-        virtual Constraint matches(Meta fr) const;
-    };
-
     class FunctionType : public Type {
         const Type *_arg, *_ret;
         vector<Constraint> _cons;
@@ -276,12 +245,12 @@ namespace basil {
 
     const Type* join(const Type* a, const Type* b);
 
-    extern const Type *I8, *I16, *I32, *I64, *U8, *U16, *U32, *U64,
+    extern const Type *I8, *I16, *I32, *I64,
                       *FLOAT, *DOUBLE, *BOOL, *TYPE, *ERROR, 
                       *VOID, *ANY, *STRING, *CHAR, *EMPTY,
                       *SYMBOL;
 
-    bool isGC(const Type* a);
+    bool shouldAlloca(const Type* a);
 }
 
 void print(stream& io, const basil::Type* t);

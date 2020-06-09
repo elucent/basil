@@ -99,6 +99,20 @@ static inline void write(u64 fd, const char* text, u64 len) {
     );   
 }
 
+struct { i64 tv_sec; i64 tv_nsec } spec;
+
+static inline u64 now() {
+    asm volatile ("mov $228, %%rax\n\t"
+        "mov $1, %%rdi\n\t"
+        "mov %0, %%rsi\n\t"
+        "syscall\n\t"
+        :
+        : "r" (&spec)
+        : "rax", "rdi", "rsi", "rdx"
+    );   
+    return spec.tv_nsec + spec.tv_sec * 1000000000ul;
+}
+
 /* * * * * * * * * * * * * * * *
  *                             *
  *       Error Handling        *
@@ -140,9 +154,8 @@ typedef struct node_t {
 #define TYPE_16384 8        // 2048-byte arena
 #define TYPE_32768 9        // 4096-byte arena
 #define TYPE_65536 10       // 8192-byte arena
-#define TYPE_131072 11      // 16384-byte arena
-#define TYPE_LARGE 12       // > page size arena
-#define NUM_TYPES 13
+#define TYPE_LARGE 11       // > page size arena
+#define NUM_TYPES 12
 
 typedef struct arena_t {
     struct arena_t* prev;
@@ -254,9 +267,6 @@ defarena(8192);
 defarena(16384);
 defarena(32768);
 defarena(65536);
-defarena(131072);
-
-static arena* arenasmall = nullptr;
 
 static void* alloclarge(u64 size) {
     size = size + sizeof(arena);
@@ -300,7 +310,6 @@ static arena** arenas[NUM_TYPES] = {
     &arena16384,  // 16384
     &arena32768,  // 32768
     &arena65536,  // 65536
-    &arena131072, // 131072
     nullptr,    // LARGE
 };
 
@@ -315,7 +324,6 @@ void* _alloc(u64 size) {
     else if (size <= 2048) return alloc16384();
     else if (size <= 4096) return alloc32768();
     else if (size <= 8192) return alloc65536();
-    else if (size <= 16384) return alloc131072();
     else return alloclarge(size);
 }
 
@@ -363,8 +371,6 @@ void _free(void* p) {
             return free32768(a, p);
         case TYPE_65536:
             return free65536(a, p);
-        case TYPE_131072:
-            return free131072(a, p);
         default:
             return;
     }
@@ -536,11 +542,62 @@ void _printu64(u64 u) {
     write(0, buf, writ - buf);
 }
 
+void _printf64(double d) {
+    static u8 buf[64];
+    static u8* writ;
+    writ = buf;
+
+    u64 u = (u64)d; // before decimal point
+    u64 m = u, p = 1;
+    while (m / 10) m /= 10, p *= 10;
+    while (p) *writ++ = '0' + (u / p % 10), p /= 10;
+
+    *writ++ = '.';
+
+    double r = d - u; // after decimal point
+    p = 10;
+    u32 zeroes = 0;
+    int isZero = r == 0 ? 1 : 0;
+    while (r && p) {
+        r *= 10;
+        if ((u8)r) {
+            isZero = 0;
+            while (zeroes) *writ++ = '0', -- zeroes;
+            *writ++ = '0' + (u8)r;
+        }
+        else ++ zeroes;
+        r -= (u8)r;
+        -- p;
+    }
+    if (isZero) *writ++ = '0';
+
+    write(0, buf, writ - buf);
+}
+
+i64 prev = 0;
+
 void _printstr(void* str) {
+    // if (!prev) prev = now();
+    // else {
+    //     // write(0, "time since last print:\n\0\0", 23);
+    //     u64 n = now();
+    //     _printf64((n - prev) / 1000000000.0);
+    //     prev = n;
+    // }
     write(0, (u8*)str + 8, _strlen(str));
 }
 
 void _printbool(i8 b) {
     if (b) write(0, "true", 4);
     else write(0, "false", 5);
+}
+
+/* * * * * * * * * * * * *
+ *                       *
+ *      Utilities        *
+ *                       *
+ * * * * * * * * * * * * */
+
+u64 _now() {
+    return now();
 }

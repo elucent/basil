@@ -1,6 +1,12 @@
 #include "io.h"
 #include "str.h"
 
+bool exists(const char* path) {
+    FILE* f = fopen(path, "r");
+    if (!f) return false;
+    else return fclose(f), true;
+}
+
 file::file(const char* fname): file(fopen(fname, "a+")) {
     //
 }

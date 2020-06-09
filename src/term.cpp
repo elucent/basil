@@ -230,11 +230,11 @@ namespace basil {
     }
 
     const Type* CharTerm::type() const {
-        return U8;
+        return I8;
     }
 
     Meta CharTerm::fold() const {
-        return Meta(U8, u64(_value));
+        return Meta(I8, i64(_value));
     }
 
     void CharTerm::repr(stream& io) const {
@@ -287,54 +287,6 @@ namespace basil {
 
     void BoolTerm::repr(stream& io) const {
         print(io, _value);
-    }
-
-    // SymbolTerm
-
-    const TermClass SymbolTerm::CLASS(Term::CLASS);
-
-    SymbolTerm::SymbolTerm(const ustring& name, u32 line, u32 column,
-                            const TermClass* tc):
-        Term(line, column, tc), _name(name) {
-        //
-    }
-
-    const ustring& SymbolTerm::name() const {
-        return _name;
-    }
-
-    void SymbolTerm::format(stream& io, u32 level) const {
-        indent(io, level);
-        println(io, "Symbol \"", _name, "\"");
-    }
-
-    void SymbolTerm::eval(Stack& stack) {
-        stack.push(new SymbolConstant(_name, line(), column()));
-    }
-    
-    bool SymbolTerm::equals(const Term* other) const {
-        return other->is<SymbolTerm>() 
-            && _name == other->as<SymbolTerm>()->_name;
-    }
-
-    u64 SymbolTerm::hash() const {
-        return ::hash(_name);
-    }
-
-    Term* SymbolTerm::clone() const {
-        return new SymbolTerm(_name, line(), column());
-    }
-
-    const Type* SymbolTerm::type() const {
-        return SYMBOL;
-    }
-
-    Meta SymbolTerm::fold() const {
-        return Meta(SYMBOL, _name);
-    }
-
-    void SymbolTerm::repr(stream& io) const {
-        print(io, '#', _name);
     }
 
     // VoidTerm
@@ -410,11 +362,11 @@ namespace basil {
     }
 
     const Type* EmptyTerm::type() const {
-        return find<BlockType>(vector<const Type*>());
+        return find<ArrayType>(VOID, 0);
     }
 
     Meta EmptyTerm::fold() const {
-        return Meta(type(), new MetaBlock({}));
+        return Meta(type(), new MetaArray({}));
     }
 
     void EmptyTerm::repr(stream& io) const {
@@ -537,13 +489,18 @@ namespace basil {
     const Type* BlockTerm::type() const {
         vector<const Type*> ts;
         for (Term* child : _children) ts.push(child->type());
-        return find<BlockType>(ts);
+        return find<ArrayType>(ts);
     }
 
     Meta BlockTerm::fold() const {
         vector<Meta> metas;
-        for (Term* child : _children) metas.push(child->fold());
-        return Meta(type(), new MetaBlock(metas));
+        const ArrayType* mytype = type()->as<ArrayType>();;
+        for (Term* child : _children) {
+            if (child->type() != mytype->element())
+                metas.push(Meta(mytype->element(), new MetaUnion(child->fold())));
+            else metas.push(child->fold());
+        }
+        return Meta(type(), new MetaArray(metas));
     }
 
     void BlockTerm::repr(stream& io) const {
@@ -562,14 +519,6 @@ namespace basil {
     template<typename T>
     static Value* factory(const Value* t) {
         return new T(t->line(), t->column());
-    }
-
-    static Value* macro(const Value* t) {
-        return new Macro(false, t->line(), t->column());
-    }
-
-    static Value* metamacro(const Value* t) {
-        return new Macro(true, t->line(), t->column());
     }
     
     void ProgramTerm::initRoot() {
@@ -593,22 +542,32 @@ namespace basil {
         root->bind("::", find<FunctionType>(ANY, 
             find<FunctionType>(ANY, ANY)), factory<Cons>);
         root->bind("print", Print::BASE_TYPE(), factory<Print>);
-        root->bind("metaprint", Metaprint::BASE_TYPE(), factory<Metaprint>);
-        root->bind("log", Metaprint::BASE_TYPE(), factory<Metaprint>);
+        root->bind("meta", find<FunctionType>(ANY, ANY), factory<MetaEval>);
         root->bind("assign", find<FunctionType>(ANY, 
-            find<FunctionType>(ANY, ANY)), factory<Assign>);
-        root->bind("lambda", find<MacroType>(ANY, true), factory<Lambda>);
-        root->bind("λ", find<MacroType>(ANY, true), factory<Lambda>);
-        root->bind("macro", find<MacroType>(ANY, true), macro);
-        root->bind("metamacro", find<MacroType>(ANY, true), metamacro);
-        root->bind("define", find<MacroType>(ANY, true), 
+            find<FunctionType>(ANY, ANY), true), factory<Assign>);
+        root->bind("lambda", find<FunctionType>(ANY, ANY, true), factory<Lambda>);
+        root->bind("λ", find<FunctionType>(ANY, ANY, true), factory<Lambda>);
+        root->bind("let", find<FunctionType>(ANY, ANY, true), 
             factory<Autodefine>);
-        root->bind("let", find<MacroType>(ANY, true), 
-            factory<Autodefine>);
-        root->bind("quote", find<MacroType>(ANY, true), factory<Quote>);
-        root->bind("eval", find<MacroType>(ANY), factory<Eval>);
+        root->bind("quote", find<FunctionType>(ANY, ANY, true), factory<Quote>);
+        root->bind("eval", find<FunctionType>(ANY, ANY), factory<Eval>);
         root->bind("typeof", find<FunctionType>(ANY, TYPE), factory<Typeof>);
         root->bind("~", find<FunctionType>(ANY, ANY), factory<Reference>);
+        root->bind("array-type", find<FunctionType>(TYPE, find<FunctionType>(ANY, TYPE)), 
+            factory<ArrayDef>);
+        root->bind("array", find<FunctionType>(ANY, ANY, true), factory<Array>);
+        root->bind("..", find<FunctionType>(I64, find<FunctionType>(I64,    
+            find<ArrayType>(I64))), factory<Range>);
+        root->bind("**", find<FunctionType>(ANY, find<FunctionType>(I64, ANY)), 
+            factory<Repeat>);
+        root->bind("if", find<FunctionType>(BOOL, find<FunctionType>(ANY, VOID, true)), 
+            factory<If>);
+        root->bind("while", find<FunctionType>(BOOL, find<FunctionType>(ANY, VOID, true)), 
+            factory<While>);
+        root->bind("use", find<FunctionType>(STRING, VOID), factory<Use>);
+
+        root->interact(TYPE, find<ArrayType>(ANY), factory<ArrayDef>);
+        root->interact(find<ArrayType>(ANY), find<ArrayType>(I64), factory<Index>);
 
         // root->bind("true", new BoolConstant(true, 0, 0));
         // root->bind("false", new BoolConstant(false, 0, 0));
@@ -617,11 +576,10 @@ namespace basil {
         root->bind("i16", TYPE, Meta(TYPE, I16));
         root->bind("i32", TYPE, Meta(TYPE, I32));
         root->bind("i64", TYPE, Meta(TYPE, I64));
-
-        root->bind("u8", TYPE, Meta(TYPE, U8));
-        root->bind("u16", TYPE, Meta(TYPE, U16));
-        root->bind("u32", TYPE, Meta(TYPE, U32));
-        root->bind("u64", TYPE, Meta(TYPE, U64));
+        root->bind("byte", TYPE, Meta(TYPE, I8));
+        root->bind("short", TYPE, Meta(TYPE, I16));
+        root->bind("int", TYPE, Meta(TYPE, I32));
+        root->bind("long", TYPE, Meta(TYPE, I64));
 
         root->bind("f32", TYPE, Meta(TYPE, FLOAT));
         root->bind("f64", TYPE, Meta(TYPE, DOUBLE));
@@ -641,6 +599,8 @@ namespace basil {
         root(new Stack(nullptr, true)), global(new Stack(root, true)) {
         _children = children;
         for (Term* t : _children) t->setParent(this);
+        root->name() = "root";
+        global->name() = "global";
         initRoot();
     }
 
@@ -670,7 +630,6 @@ namespace basil {
             else t->eval(*global);
         }
         for (Value* v : *global) v->type(*global);
-        for (Value* v : *global) v->fold(*global);
         
         vector<Value*> vals;
         for (Value* v : *global) vals.push(v);
@@ -685,7 +644,6 @@ namespace basil {
         Stack* local = new Stack(global);
         t->eval(*local);
         for (Value* v : *local) v->type(*local);
-        for (Value* v : *local) v->fold(*local);
         stack.copy(*local);
     }
     
@@ -715,13 +673,13 @@ namespace basil {
     const Type* ProgramTerm::type() const {
         vector<const Type*> ts;
         for (Term* child : _children) ts.push(child->type());
-        return find<BlockType>(ts);
+        return find<ArrayType>(ts);
     }
 
     Meta ProgramTerm::fold() const {
         vector<Meta> metas;
         for (Term* child : _children) metas.push(child->fold());
-        return Meta(type(), new MetaBlock(metas));
+        return Meta(type(), new MetaArray(metas));
     }
 
     void ProgramTerm::repr(stream& io) const {

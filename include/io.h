@@ -13,6 +13,8 @@ public:
     virtual operator bool() const = 0;
 };
 
+bool exists(const char* path);
+
 class file : public stream {
     FILE* f;
     bool done;

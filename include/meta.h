@@ -15,7 +15,6 @@ namespace basil {
         const Type* _type;
         union {
             i64 i;
-            u64 u;
             double d;
             const Type* t;
             bool b;
@@ -24,11 +23,9 @@ namespace basil {
             MetaList* l;
             MetaTuple* tu;
             MetaArray* a;
-            MetaBlock* bl;
             MetaUnion* un;
             MetaIntersect* in;
             MetaFunction* f;
-            MetaMacro* m;
         } value;
 
         void free();
@@ -38,7 +35,6 @@ namespace basil {
         Meta();
         Meta(const Type* type);
         Meta(const Type* type, i64 i);
-        Meta(const Type* type, u64 u);
         Meta(const Type* type, double d);
         Meta(const Type* type, const Type* t);
         Meta(const Type* type, bool b);
@@ -47,11 +43,9 @@ namespace basil {
         Meta(const Type* type, MetaList* l);
         Meta(const Type* type, MetaTuple* tu);
         Meta(const Type* type, MetaArray* a);
-        Meta(const Type* type, MetaBlock* bl);
         Meta(const Type* type, MetaUnion* un);
         Meta(const Type* type, MetaIntersect* in);
         Meta(const Type* type, MetaFunction* f);
-        Meta(const Type* type, MetaMacro* m);
         ~Meta();
         Meta(const Meta& other);
         Meta& operator=(const Meta& other);
@@ -60,9 +54,6 @@ namespace basil {
         bool isInt() const;
         i64 asInt() const;
         i64& asInt();
-        bool isUint() const;
-        u64 asUint() const;
-        u64& asUint();
         bool isFloat() const;
         double asFloat() const;
         double& asFloat();
@@ -73,8 +64,8 @@ namespace basil {
         bool asBool() const;
         bool& asBool();
         bool isSymbol() const;
-        u64 asSymbol() const;
-        u64& asSymbol();
+        i64 asSymbol() const;
+        i64& asSymbol();
         bool isRef() const;
         const Meta& asRef() const;
         Meta& asRef();
@@ -90,9 +81,6 @@ namespace basil {
         bool isArray() const;
         const MetaArray& asArray() const;
         MetaArray& asArray();
-        bool isBlock() const;
-        const MetaBlock& asBlock() const;
-        MetaBlock& asBlock();
         bool isUnion() const;
         const MetaUnion& asUnion() const;
         MetaUnion& asUnion();
@@ -102,9 +90,6 @@ namespace basil {
         bool isFunction() const;
         const MetaFunction& asFunction() const;
         MetaFunction& asFunction();
-        bool isMacro() const;
-        const MetaMacro& asMacro() const;
-        MetaMacro& asMacro();
         operator bool() const;
         Meta clone() const;
         void format(stream& io) const;
@@ -174,23 +159,6 @@ namespace basil {
         Meta clone(const Meta& src) const override;
     };
 
-    class MetaBlock : public MetaRC {
-        vector<Meta> vals;
-    public:
-        MetaBlock(const vector<Meta>& values);
-        void push(const Meta& elt);
-        void cat(const Meta& block);
-        Meta slice(u32 start, u32 finish) const;
-        const Meta& operator[](u32 i) const;
-        Meta& operator[](u32 i);
-        const Meta* begin() const;
-        const Meta* end() const;
-        Meta* begin();
-        Meta* end();
-        u32 size() const;
-        Meta clone(const Meta& src) const override;
-    };
-
     class MetaUnion : public MetaRC {
         Meta real;
     public:
@@ -225,14 +193,6 @@ namespace basil {
         Value* value() const;
         map<ustring, Meta>* captures();
         const map<ustring, Meta>* captures() const;
-        Meta clone(const Meta& src) const override;
-    };
-
-    class MetaMacro : public MetaRC {
-        Value* mac;
-    public:
-        MetaMacro(Value* macro);
-        Value* value() const;
         Meta clone(const Meta& src) const override;
     };
 

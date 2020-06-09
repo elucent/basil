@@ -2,6 +2,7 @@
 #include "type.h"
 #include "io.h"
 #include "errors.h"
+#include "value.h"
 
 namespace basil {
     map<u64, ustring> symbolnames;
@@ -33,55 +34,48 @@ namespace basil {
         else if (isString()) value.s->dec();
         else if (isArray()) value.a->dec();
         else if (isTuple()) value.tu->dec();
-        else if (isBlock()) value.bl->dec();
         else if (isUnion()) value.un->dec();
         else if (isIntersect()) value.in->dec();
         else if (isFunction()) value.f->dec();
-        else if (isMacro()) value.m->dec();
     }
 
     void Meta::copy(const Meta& other) {
         _type = other._type;
         if (!_type || isVoid()) return;
         else if (isInt()) value.i = other.value.i;
-        else if (isUint()) value.u = other.value.u;
         else if (isFloat()) value.d = other.value.d;
         else if (isType()) value.t = other.value.t;
         else if (isBool()) value.b = other.value.b;
-        else if (isSymbol()) value.u = other.value.u;
+        else if (isSymbol()) value.i = other.value.i;
         else if (isRef()) value.r = other.value.r;
         else if (isString()) value.s = other.value.s, value.s->inc();
         else if (isList()) value.l = other.value.l, value.l->inc();
         else if (isTuple()) value.tu = other.value.tu, value.tu->inc();
         else if (isArray()) value.a = other.value.a, value.a->inc();
-        else if (isBlock()) value.bl = other.value.bl, value.bl->inc();
         else if (isUnion()) value.un = other.value.un, value.un->inc();
         else if (isIntersect()) value.in = other.value.in, value.in->inc();
         else if (isFunction()) value.f = other.value.f, value.f->inc();
-        else if (isMacro()) value.m = other.value.m, value.m->inc();
     }
 
     void Meta::assign(const Meta& other) {
+        if (!_type) return copy(other);
         auto prev = value;
         _type = other._type;
         value.s = nullptr;
         if (!_type || isVoid()) return;
         else if (isInt()) value.i = other.value.i;
-        else if (isUint()) value.u = other.value.u;
         else if (isFloat()) value.d = other.value.d;
         else if (isType()) value.t = other.value.t;
         else if (isBool()) value.b = other.value.b;
-        else if (isSymbol()) value.u = other.value.u;
+        else if (isSymbol()) value.i = other.value.i;
         else if (isRef()) value.r = other.value.r;
         else if (isString()) value.s = other.value.s, value.s->inc(), prev.s ? prev.s->dec() : void();
         else if (isList()) value.l = other.value.l, value.l->inc(), prev.l ? prev.l->dec() : void();
         else if (isTuple()) value.tu = other.value.tu, value.tu->inc(), prev.tu ? prev.tu->dec() : void();
         else if (isArray()) value.a = other.value.a, value.a->inc(), prev.a ? prev.a->dec() : void();
-        else if (isBlock()) value.bl = other.value.bl, value.bl->inc(), prev.bl ? prev.bl->dec() : void();
         else if (isUnion()) value.un = other.value.un, value.un->inc(), prev.un ? prev.un->dec() : void();
         else if (isIntersect()) value.in = other.value.in, value.in->inc(), prev.in ? prev.in->dec() : void();
         else if (isFunction()) value.f = other.value.f, value.f->inc(), prev.f ? prev.f->dec() : void();
-        else if (isMacro()) value.m = other.value.m, value.m->inc(), prev.m ? prev.m->dec() : void();
     }
 
     Meta::Meta(): _type(nullptr) {
@@ -94,10 +88,6 @@ namespace basil {
 
     Meta::Meta(const Type* type, i64 i): Meta(type) {
         value.i = i;
-    }
-
-    Meta::Meta(const Type* type, u64 u): Meta(type) {
-        value.u = u;
     }
 
     Meta::Meta(const Type* type, double d): Meta(type) {
@@ -120,7 +110,7 @@ namespace basil {
         if (type == STRING)
             value.s = new MetaString(s);
         else if (type == SYMBOL)
-            value.u = findSymbol(s);
+            value.i = findSymbol(s);
     }
 
     Meta::Meta(const Type* type, MetaList* l): Meta(type) {
@@ -135,10 +125,6 @@ namespace basil {
         value.a = a;
     }
 
-    Meta::Meta(const Type* type, MetaBlock* bl): Meta(type) {
-        value.bl = bl;
-    }
-
     Meta::Meta(const Type* type, MetaUnion* un): Meta(type) {
         value.un = un;
     }
@@ -149,10 +135,6 @@ namespace basil {
 
     Meta::Meta(const Type* type, MetaFunction* f): Meta(type) {
         value.f = f;
-    }
-
-    Meta::Meta(const Type* type, MetaMacro* m): Meta(type) {
-        value.m = m;
     }
 
     Meta::~Meta() {
@@ -181,8 +163,7 @@ namespace basil {
     bool Meta::isInt() const {
         if (!_type) return false;
         return _type->is<NumericType>() 
-            && !_type->as<NumericType>()->floating()
-            && _type->as<NumericType>()->isSigned();
+            && !_type->as<NumericType>()->floating();
     }
 
     i64 Meta::asInt() const {
@@ -191,21 +172,6 @@ namespace basil {
 
     i64& Meta::asInt() {
         return value.i;
-    }
-
-    bool Meta::isUint() const {
-        if (!_type) return false;
-        return _type->is<NumericType>() 
-            && !_type->as<NumericType>()->floating()
-            && !_type->as<NumericType>()->isSigned();
-    }
-
-    u64 Meta::asUint() const {
-        return value.u;
-    }
-
-    u64& Meta::asUint() {
-        return value.u;
     }
 
     bool Meta::isFloat() const {
@@ -250,12 +216,12 @@ namespace basil {
         return _type == SYMBOL;
     }
 
-    u64 Meta::asSymbol() const {
-        return value.u;
+    i64 Meta::asSymbol() const {
+        return value.i;
     }
 
-    u64& Meta::asSymbol() {
-        return value.u;
+    i64& Meta::asSymbol() {
+        return value.i;
     }
 
     bool Meta::isRef() const {
@@ -311,7 +277,7 @@ namespace basil {
 
     bool Meta::isArray() const {
         if (!_type) return false;
-        return false; // _type->is<ArrayType>();
+        return _type->is<ArrayType>();
     }
 
     const MetaArray& Meta::asArray() const {
@@ -320,19 +286,6 @@ namespace basil {
 
     MetaArray& Meta::asArray() {
         return *value.a;
-    }
-    
-    bool Meta::isBlock() const {
-        if (!_type) return false;
-        return _type->is<BlockType>();
-    }
-
-    const MetaBlock& Meta::asBlock() const {
-        return *value.bl;
-    }
-
-    MetaBlock& Meta::asBlock() {
-        return *value.bl;
     }
 
     bool Meta::isUnion() const {
@@ -374,19 +327,6 @@ namespace basil {
         return *value.f;
     }
 
-    bool Meta::isMacro() const {
-        if (!_type) return false;
-        return _type->is<MacroType>();
-    }
-
-    const MetaMacro& Meta::asMacro() const {
-        return *value.m;
-    }
-
-    MetaMacro& Meta::asMacro() {
-        return *value.m;
-    }
-
     Meta::operator bool() const {
         return _type;
     }
@@ -396,11 +336,9 @@ namespace basil {
         else if (isString()) return value.s->clone(*this);
         else if (isArray()) return value.a->clone(*this);
         else if (isTuple()) return value.tu->clone(*this);
-        else if (isBlock()) return value.bl->clone(*this);
         else if (isUnion()) return value.un->clone(*this);
         else if (isIntersect()) return value.in->clone(*this);
         else if (isFunction()) return value.f->clone(*this);
-        else if (isMacro()) return value.m->clone(*this);
         return *this;
     }
 
@@ -408,7 +346,6 @@ namespace basil {
         if (!_type) print(io, "<null>");
         else if (isVoid()) print(io, "()");
         else if (isInt()) print(io, asInt());
-        else if (isUint()) print(io, asUint());
         else if (isFloat()) print(io, asFloat());
         else if (isType()) print(io, asType());
         else if (isBool()) print(io, asBool());
@@ -425,21 +362,14 @@ namespace basil {
             print(io, ")");
         }
         else if (isArray()) {
-            print(io, "{");
+            print(io, "[");
             for (u32 i = 0; i < asArray().size(); i ++) {
-                print(io, i != 0 ? ", " : "", asArray()[i]);
+                print(io, i != 0 ? " " : "", asArray()[i]);
             }
-            print(io, "}");
-        }
-        else if (isBlock()) {
-            print(io, "(");
-            for (u32 i = 0; i < asBlock().size(); i ++) {
-                print(io, i != 0 ? " " : "", asBlock()[i]);
-            }
-            print(io, ")");
+            print(io, "]");
         }
         else if (isUnion())
-            print(io, "(", _type, " of ", asUnion().value(), ")");
+            print(io, asUnion().value());
         else if (isIntersect()) {
             print(io, "(");
             for (u32 i = 0; i < asTuple().size() - 1; i ++) {
@@ -447,8 +377,7 @@ namespace basil {
             }
             print(io, ")");
         }
-        else if (isFunction()) print(io, "<function>");
-        else if (isMacro()) print(io, "<macro>");
+        else if (isFunction()) print(io, "<function: ", asFunction().value(), ">");
     }
 
     bool Meta::operator==(const Meta& m) const {
@@ -456,7 +385,6 @@ namespace basil {
         if (!_type) return true;
         else if (isVoid()) return true;
         else if (isInt()) return asInt() == m.asInt();
-        else if (isUint()) return asUint() == m.asUint();
         else if (isFloat()) return asFloat() == m.asFloat();
         else if (isType()) return asType() == m.asType();
         else if (isBool()) return asBool() == m.asBool();
@@ -475,11 +403,6 @@ namespace basil {
                 if (asArray()[i] != m.asArray()[i]) return false;
             }
         }
-        else if (isBlock()) {
-            for (u32 i = 0; i < asBlock().size(); i ++) {
-                if (asBlock()[i] != m.asBlock()[i]) return false;
-            }
-        }
         else if (isUnion())
             return m.asUnion().value() == asUnion().value();
         else if (isIntersect()) {
@@ -489,8 +412,6 @@ namespace basil {
         }
         else if (isFunction()) 
             return asFunction().value() == m.asFunction().value();
-        else if (isMacro())
-            return asMacro().value() == m.asMacro().value();
         return true;
     }
 
@@ -503,7 +424,6 @@ namespace basil {
         if (!_type) return h;
         else if (isVoid()) return h;
         else if (isInt()) return h ^ ::hash(asInt());
-        else if (isUint()) return h ^ ::hash(asUint());
         else if (isFloat()) return h ^ ::hash(asFloat());
         else if (isType()) return h ^ ::hash(asType());
         else if (isBool()) return h ^ ::hash(asBool());
@@ -523,12 +443,6 @@ namespace basil {
             }
             return h;
         }
-        else if (isBlock()) {
-            for (u32 i = 0; i < asBlock().size(); i ++) {
-                h ^= asBlock()[i].hash();
-            }
-            return h;
-        }
         else if (isUnion())
             return h ^ asUnion().value().hash();
         else if (isIntersect()) {
@@ -539,8 +453,6 @@ namespace basil {
         }
         else if (isFunction()) 
             return h ^ ::hash(asFunction().value());
-        else if (isMacro())
-            return h ^ ::hash(asMacro().value());
         return h;
     }
 
@@ -701,63 +613,6 @@ namespace basil {
         return Meta(src.type(), new MetaArray(copies));
     }
 
-    // MetaBlock
-
-    MetaBlock::MetaBlock(const vector<Meta>& values): vals(values) {
-        //
-    }
-
-    void MetaBlock::push(const Meta& elt) {
-        vals.push(elt);
-    }
-
-    void MetaBlock::cat(const Meta& block) {
-        for (const Meta& m : block.asBlock()) vals.push(m);
-    }
-
-    Meta MetaBlock::slice(u32 start, u32 finish) const {
-        vector<Meta> slice;
-        vector<const Type*> types;
-        for (u32 i = start; i < finish; i ++) 
-            slice.push(vals[i]), types.push(vals[i].type());
-        const Type* bt = find<TupleType>(types); // should be blocktype
-        return Meta(bt, new MetaBlock(slice));
-    }
-
-    const Meta& MetaBlock::operator[](u32 i) const {
-        return vals[i];
-    }
-
-    Meta& MetaBlock::operator[](u32 i) {
-        return vals[i];
-    }
-
-    const Meta* MetaBlock::begin() const {
-        return vals.begin();
-    }
-
-    const Meta* MetaBlock::end() const {
-        return vals.end();
-    }
-
-    Meta* MetaBlock::begin() {
-        return vals.begin();
-    }
-
-    Meta* MetaBlock::end() {
-        return vals.end();
-    }
-
-    u32 MetaBlock::size() const {
-        return vals.size();
-    }
-
-    Meta MetaBlock::clone(const Meta& src) const {
-        vector<Meta> copies;
-        for (const Meta& m : *this) copies.push(m.clone());
-        return Meta(src.type(), new MetaBlock(copies));
-    }
-
     // MetaUnion
 
     MetaUnion::MetaUnion(const Meta& val): real(val) {
@@ -854,20 +709,6 @@ namespace basil {
         return Meta(src.type(), new MetaFunction(fn));
     }
 
-    // MetaMacro
-
-    MetaMacro::MetaMacro(Value* macro): mac(macro) {
-        //
-    }
-
-    Value* MetaMacro::value() const {
-        return mac;
-    }
-
-    Meta MetaMacro::clone(const Meta& src) const {
-        return Meta(src.type(), new MetaMacro(mac));
-    }
-
     // Meta Ops
 
     i64 trunc(i64 n, const Type* dest) {
@@ -899,20 +740,11 @@ namespace basil {
     double toFloat(const Meta& m) {
         if (m.isFloat()) return m.asFloat();
         else if (m.isInt()) return m.asInt();
-        else if (m.isUint()) return m.asUint();
         return 0;
     }
 
     i64 toInt(const Meta& m) {
         if (m.isInt()) return m.asInt();
-        else if (m.isUint()) return m.asUint();
-        else if (m.isFloat()) return i64(m.asFloat());
-        return 0;
-    }
-
-    u64 toUint(const Meta& m) {
-        if (m.isUint()) return m.asUint();
-        else if (m.isInt()) return m.asInt();
         else if (m.isFloat()) return i64(m.asFloat());
         return 0;
     }
@@ -928,10 +760,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(dst, toFloat(lhs) + toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(dst, trunc(toInt(lhs) + toInt(rhs), dst));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(dst, trunc(toUint(lhs) + toUint(rhs), dst));
         else if (dst == STRING)
             return Meta(dst, lhs.asString() + rhs.asString());
         return Meta();
@@ -943,10 +773,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(dst, toFloat(lhs) - toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(dst, trunc(toInt(lhs) - toInt(rhs), dst));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(dst, trunc(toUint(lhs) - toUint(rhs), dst));
         return Meta();
     }
 
@@ -956,10 +784,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(dst, toFloat(lhs) * toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(dst, trunc(toInt(lhs) * toInt(rhs), dst));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(dst, trunc(toUint(lhs) * toUint(rhs), dst));
         return Meta();
     }
 
@@ -969,10 +795,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(dst, toFloat(lhs) / toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(dst, trunc(toInt(lhs) / toInt(rhs), dst));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(dst, trunc(toUint(lhs) / toUint(rhs), dst));
         return Meta();
     }
 
@@ -982,10 +806,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(dst, fmod(toFloat(lhs), toFloat(rhs)));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(dst, trunc(toInt(lhs) % toInt(rhs), dst));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(dst, trunc(toUint(lhs) % toUint(rhs), dst));
         return Meta();
     }
 
@@ -1025,10 +847,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(BOOL, toFloat(lhs) < toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(BOOL, toInt(lhs) < toInt(rhs));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(BOOL, toUint(lhs) < toUint(rhs));
         else if (dst == STRING)
             return Meta(BOOL, lhs.asString() < rhs.asString());
         return Meta();
@@ -1040,10 +860,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(BOOL, toFloat(lhs) <= toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(BOOL, toInt(lhs) <= toInt(rhs));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(BOOL, toUint(lhs) <= toUint(rhs));
         else if (dst == STRING)
             return Meta(BOOL, lhs.asString() <= rhs.asString());
         return Meta();
@@ -1055,10 +873,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(BOOL, toFloat(lhs) > toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(BOOL, toInt(lhs) > toInt(rhs));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(BOOL, toUint(lhs) > toUint(rhs));
         else if (dst == STRING)
             return Meta(BOOL, lhs.asString() > rhs.asString());
         return Meta();
@@ -1070,10 +886,8 @@ namespace basil {
         if (!dst) return Meta();
         if (dst->is<NumericType>() && dst->as<NumericType>()->floating()) 
             return Meta(BOOL, toFloat(lhs) >= toFloat(rhs));
-        else if (dst->is<NumericType>() && dst->as<NumericType>()->isSigned())
+        else if (dst->is<NumericType>())
             return Meta(BOOL, toInt(lhs) >= toInt(rhs));
-        else if (dst->is<NumericType>() && !dst->as<NumericType>()->isSigned())
-            return Meta(BOOL, toUint(lhs) >= toUint(rhs));
         else if (dst == STRING)
             return Meta(BOOL, lhs.asString() >= rhs.asString());
         return Meta();
