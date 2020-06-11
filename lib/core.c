@@ -527,7 +527,7 @@ void _printi64(i64 i) {
     while (m / 10) m /= 10, p *= 10;
     while (p) *writ++ = '0' + (i / p % 10), p /= 10;
 
-    write(0, buf, writ - buf);
+    write(1, buf, writ - buf);
 }
 
 void _printu64(u64 u) {
@@ -539,7 +539,7 @@ void _printu64(u64 u) {
     while (m / 10) m /= 10, p *= 10;
     while (p) *writ++ = '0' + (u / p % 10), p /= 10;
 
-    write(0, buf, writ - buf);
+    write(1, buf, writ - buf);
 }
 
 void _printf64(double d) {
@@ -571,7 +571,7 @@ void _printf64(double d) {
     }
     if (isZero) *writ++ = '0';
 
-    write(0, buf, writ - buf);
+    write(1, buf, writ - buf);
 }
 
 i64 prev = 0;
@@ -584,12 +584,12 @@ void _printstr(void* str) {
     //     _printf64((n - prev) / 1000000000.0);
     //     prev = n;
     // }
-    write(0, (u8*)str + 8, _strlen(str));
+    write(1, (u8*)str + 8, _strlen(str));
 }
 
 void _printbool(i8 b) {
-    if (b) write(0, "true", 4);
-    else write(0, "false", 5);
+    if (b) write(1, "true", 4);
+    else write(1, "false", 5);
 }
 
 /* * * * * * * * * * * * *

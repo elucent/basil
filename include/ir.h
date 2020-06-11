@@ -77,6 +77,8 @@ namespace basil {
         Location NONE;
         bool reqstack = false;
     public:
+        virtual Location* backup(u32 i) = 0;
+        virtual void reserveBackups(u32 i) = 0;
         virtual Location* stack(const Type* type) = 0;
         virtual Location* stack(const Type* type, const ustring& name) = 0;
         virtual u32 slot(const Type* type) = 0;
@@ -96,11 +98,14 @@ namespace basil {
         u32 _temps;
         vector<Insn*> insns;
         vector<Location*> variables;
+        vector<Location*> backups;
         map<ustring, Label*> labels;
         ustring _label, _end;
         const Type* _ret;
     public:
         Function(const ustring& label);
+        Location* backup(u32 i) override;
+        void reserveBackups(u32 i) override;
         Location* stack(const Type* type) override;
         Location* stack(const Type* type, const ustring& name) override;
         u32 slot(const Type* type) override;
@@ -127,6 +132,7 @@ namespace basil {
         vector<Function*> functions;
         vector<Location*> variables;
         vector<Location*> datavars;
+        vector<Location*> backups;
         map<ustring, Label*> labels;
         map<const Type*, Location*> arglocs;
         map<const Type*, Location*> retlocs;
@@ -136,6 +142,8 @@ namespace basil {
         Function* newFunction();
         Function* newFunction(const ustring& label);
         ustring newLabel();
+        Location* backup(u32 i) override;
+        void reserveBackups(u32 i) override;
         Location* stack(const Type* type) override;
         Location* stack(const Type* type, const ustring& name) override;
         u32 slot(const Type* type) override;
@@ -571,6 +579,7 @@ namespace basil {
     
     class CallInsn : public Insn {
         Location *_operand, *_func;
+        CodeFrame* _home;
     protected:
         virtual Location* lazyValue(CodeGenerator& gen,
                                    CodeFrame& frame) override;

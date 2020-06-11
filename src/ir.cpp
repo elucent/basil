@@ -314,12 +314,31 @@ namespace basil {
             }
         }
     }
+    
+    void postAllocationPass(CodeFrame& frame, vector<Insn*>& insns) {
+        for (Insn* i : insns) if (i->is<CallInsn>()) {
+            vector<Location*> saved;
+            for (Location* l : i->inset()) if (l->segm == REGISTER) {
+                if (i->outset().find(l) != i->outset().end()) saved.push(l);
+            }
+            frame.reserveBackups(saved.size());
+        }
+    }
 
     // Function
 
     Function::Function(const ustring& label):
         _stack(0), _temps(0), _label(label), _ret(VOID) {
         //
+    }
+
+    Location* Function::backup(u32 i) {
+        return backups[i];
+    }
+
+    void Function::reserveBackups(u32 n) {
+        for (u32 i = 0; i < n; i ++) 
+            backups.push(new Location(STACK, slot(I64), I64));
     }
 
     Location* Function::stack(const Type* type) {
@@ -370,6 +389,7 @@ namespace basil {
         // hlCanonicalize(*this, insns);
         livenessPass(*this, insns);
         allocationPass(*this, insns);
+        postAllocationPass(*this, insns);
         // for (Location& l : variables) {
         //     l.allocate(STACK, -i64(slot(l.type)));
         // }
@@ -426,6 +446,15 @@ namespace basil {
         ustring s;
         fread(b, s);
         return s;
+    }
+
+    Location* CodeGenerator::backup(u32 i) {
+        return backups[i];
+    }
+
+    void CodeGenerator::reserveBackups(u32 n) {
+        for (u32 i = 0; i < n; i ++) 
+            backups.push(new Location(STACK, slot(I64), I64));
     }
 
     Location* CodeGenerator::stack(const Type* type) {
@@ -503,6 +532,7 @@ namespace basil {
 
         livenessPass(*this, insns);
         allocationPass(*this, insns);
+        postAllocationPass(*this, insns);
    
         // for (Location& l : variables) {
         //     l.allocate(STACK, -i64(slot(l.type)));
@@ -1209,13 +1239,14 @@ namespace basil {
     Location* CallInsn::lazyValue(CodeGenerator& gen, 
                                 CodeFrame& frame) {
         if (_func->type->as<FunctionType>()->ret() == VOID) return frame.none();
+        _home = &frame;
         return frame.stack(_func->type->as<FunctionType>()->ret());
     }
 
     const InsnClass CallInsn::CLASS(Insn::CLASS);
 
     CallInsn::CallInsn(Location* operand, Location* func, const InsnClass* ic):
-        Insn(ic), _operand(operand), _func(func) {
+        Insn(ic), _operand(operand), _func(func), _home(nullptr) {
         //
     }
 
@@ -1883,7 +1914,9 @@ namespace basil {
         }
 
         for (u32 i = 0; i < saved.size(); i ++) {
-            x64::printer::push(text, data, saved[i]);
+            Location* backup = _home->backup(i);
+            backup->type = saved[i]->type;
+            movex86(text, data, saved[i], backup);
         }
         
         Location* dst = _operand->type->is<NumericType>()
@@ -1898,7 +1931,9 @@ namespace basil {
         movex86(text, data, ret, _cached);
 
         for (i64 i = i64(saved.size()) - 1; i >= 0; i --) {
-            x64::printer::pop(text, data, saved[i]);
+            Location* backup = _home->backup(i);
+            backup->type = saved[i]->type;
+            movex86(text, data, backup, saved[i]);
         }
     }
 
