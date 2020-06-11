@@ -18,15 +18,37 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 
+/* * * * * * * * * * * * *
+ *                       *
+ *        Linkage        *
+ *                       *
+ * * * * * * * * * * * * */
+
+extern void* _mmap(void*, u64, u64, u64) asm("_mmap");
+extern void _munmap(void*, u64) asm("_munmap");
+extern void _exit(u64) asm("_exit");
+extern void _read(u64, char*, u64) asm("_read");
+extern void _write(u64, const char*, u64) asm("_write");
+extern void _printi64(i64) asm("_printi64");
+extern void _printf64(double) asm("_printf64");
+extern void _printstr(void*) asm("_printstr");
+extern void _printbool(i8) asm("_printbool");
+
 /* * * * * * * * * * * * * * * *
  *                             *
  *        System Calls         *
  *                             *
  * * * * * * * * * * * * * * * */
 
-static inline void* mmap(void* addr, u64 len, u64 prot, u64 flags) {
+inline void* _mmap(void* addr, u64 len, u64 prot, u64 flags) {
     void* ret;
     
+    #ifdef __APPLE__
+        #define MMAP_CODE "0x20000C5"
+    #else if defined(__linux__)
+        #define MMAP_CODE "9"
+    #endif
+
     #define PROT_READ 0x1		
     #define PROT_WRITE 0x2		
     #define PROT_EXEC 0x4		
@@ -37,7 +59,8 @@ static inline void* mmap(void* addr, u64 len, u64 prot, u64 flags) {
     #define MAP_SHARED	0x01
     #define MAP_PRIVATE	0x02
     #define MAP_ANONYMOUS 0x20
-    asm volatile ("mov $9, %%rax\n\t"
+
+    asm volatile ("mov $" MMAP_CODE ", %%rax\n\t"
         "mov %1, %%rdi\n\t"
         "mov %2, %%rsi\n\t"
         "mov %3, %%rdx\n\t"
@@ -54,8 +77,14 @@ static inline void* mmap(void* addr, u64 len, u64 prot, u64 flags) {
     return ret;
 }
 
-static inline void munmap(void* addr, u64 len) {
-    asm volatile ("mov $11, %%rax\n\t"
+inline void _munmap(void* addr, u64 len) {
+    #ifdef __APPLE__
+        #define MUNMAP_CODE "0x2000049"
+    #else if defined(__linux__)
+        #define MUNMAP_CODE "11"
+    #endif
+
+    asm volatile ("mov $" MMAP_CODE ", %%rax\n\t"
         "mov %0, %%rdi\n\t"
         "mov %1, %%rsi\n\t"
         "syscall\n\t"
@@ -65,8 +94,13 @@ static inline void munmap(void* addr, u64 len) {
     );
 }
 
-static inline void exit(u64 ret) {
-    asm volatile ("mov $60, %%rax\n\t"
+inline void _exit(u64 ret) {
+    #ifdef __APPLE__
+        #define EXIT_CODE "0x2000001"
+    #else if defined(__linux__)
+        #define EXIT_CODE "60"
+    #endif
+    asm volatile ("mov $" EXIT_CODE ", %%rax\n\t"
         "mov %0, %%rdi\n\t"
         "syscall\n\t"
         :
@@ -75,8 +109,13 @@ static inline void exit(u64 ret) {
     );
 }
 
-static inline void read(u64 fd, char* buf, u64 len) {
-    asm volatile ("mov $0, %%rax\n\t"
+inline void _read(u64 fd, char* buf, u64 len) {
+    #ifdef __APPLE__
+        #define READ_CODE "0x2000003"
+    #else if defined(__linux__)
+        #define READ_CODE "0"
+    #endif
+    asm volatile ("mov $" READ_CODE ", %%rax\n\t"
         "mov %0, %%rdi\n\t"
         "mov %1, %%rsi\n\t"
         "mov %2, %%rdx\n\t"
@@ -87,8 +126,13 @@ static inline void read(u64 fd, char* buf, u64 len) {
     );   
 }
 
-static inline void write(u64 fd, const char* text, u64 len) {
-    asm volatile ("mov $1, %%rax\n\t"
+inline void _write(u64 fd, const char* text, u64 len) {
+    #ifdef __APPLE__
+        #define WRITE_CODE "0x2000004"
+    #else if defined(__linux__)
+        #define WRITE_CODE "1"
+    #endif
+    asm volatile ("mov $" WRITE_CODE ", %%rax\n\t"
         "mov %0, %%rdi\n\t"
         "mov %1, %%rsi\n\t"
         "mov %2, %%rdx\n\t"
@@ -101,7 +145,7 @@ static inline void write(u64 fd, const char* text, u64 len) {
 
 struct { i64 tv_sec; i64 tv_nsec } spec;
 
-static inline u64 now() {
+inline u64 _now() {
     asm volatile ("mov $228, %%rax\n\t"
         "mov $1, %%rdi\n\t"
         "mov %0, %%rsi\n\t"
@@ -119,14 +163,10 @@ static inline u64 now() {
  *                             *
  * * * * * * * * * * * * * * * */
 
-void _exit(u64 code) {
-    exit(code);
-}
-
 void _panic(const char* msg) {
     const char* ptr = msg;
     while (*ptr) ptr ++;
-    write(0, msg, ptr - msg);
+    _write(0, msg, ptr - msg);
     _exit(1);
 }
 
@@ -170,7 +210,7 @@ typedef struct arena_t {
 
 static arena* new_arena(u64 type, arena* prev, arena* next) {
     // allocate region
-    u8* ptr = mmap(nullptr,
+    u8* ptr = _mmap(nullptr,
                    ARENA_SIZE * 2,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANONYMOUS);
@@ -180,9 +220,9 @@ static arena* new_arena(u64 type, arena* prev, arena* next) {
 
     // trim region to arena size
     if ((u8*)a - ptr) 
-        munmap(ptr, (u8*)a - ptr);
+        _munmap(ptr, (u8*)a - ptr);
     if ((ptr + ARENA_SIZE) - (u8*)a) 
-        munmap((u8*)a + ARENA_SIZE, (ptr + ARENA_SIZE) - (u8*)a);
+        _munmap((u8*)a + ARENA_SIZE, (ptr + ARENA_SIZE) - (u8*)a);
 
     u64 align = 8 << a->type; // compute element size
     if (align < sizeof(arena)) align = sizeof(arena);
@@ -271,7 +311,7 @@ defarena(65536);
 static void* alloclarge(u64 size) {
     size = size + sizeof(arena);
     size = (size + ARENA_SIZE - 1) & ~(ARENA_SIZE - 1);
-    u8* p = mmap(nullptr, size + ARENA_SIZE, 
+    u8* p = _mmap(nullptr, size + ARENA_SIZE, 
                     PROT_READ | PROT_WRITE, 
                     MAP_PRIVATE | MAP_ANONYMOUS);
     // align to arena size within region
@@ -279,9 +319,9 @@ static void* alloclarge(u64 size) {
 
     // trim region to arena size
     if ((u8*)a - p) 
-        munmap(p, (u8*)a - p);
+        _munmap(p, (u8*)a - p);
     if ((p + ARENA_SIZE) - (u8*)a) 
-        munmap((u8*)a + ARENA_SIZE, (p + ARENA_SIZE) - (u8*)a);
+        _munmap((u8*)a + ARENA_SIZE, (p + ARENA_SIZE) - (u8*)a);
     
     a->prev = nullptr;
     a->next = nullptr;
@@ -295,7 +335,7 @@ static void* alloclarge(u64 size) {
 
 static void freelarge(void* p) {
     arena* a = (arena*)((u64)p & ~(ARENA_SIZE - 1));
-    munmap(a, (u8*)a->end - (u8*)a);
+    _munmap(a, (u8*)a->end - (u8*)a);
 }
 
 static arena** arenas[NUM_TYPES] = {
@@ -346,7 +386,7 @@ void _free(void* p) {
             else if (a->prev) *arenas[a->type] = a->prev;
             else *arenas[a->type] = nullptr;
         }
-        munmap(a, ARENA_SIZE);
+        _munmap(a, ARENA_SIZE);
         return;
     }
 
@@ -517,9 +557,20 @@ void* _cons(u64 size, void* next) {
  *                             *
  * * * * * * * * * * * * * * * */
 
+void memset(void* b, i64 c, i64 len) {
+    int i;
+    u8* p = b;
+    i = 0;
+    while(len > 0) {
+        *p = c;
+        p ++;
+        len --;
+    }
+}
+
 void _printi64(i64 i) {
-    static u8 buf[32];
-    static u8* writ = buf;
+    u8 buf[64];
+    u8* writ = buf;
     writ = buf;
 
     if (i < 0) *writ++ = '-', i = -i;
@@ -527,25 +578,23 @@ void _printi64(i64 i) {
     while (m / 10) m /= 10, p *= 10;
     while (p) *writ++ = '0' + (i / p % 10), p /= 10;
 
-    write(1, buf, writ - buf);
+    +write(1, buf, writ - buf);
 }
 
 void _printu64(u64 u) {
-    static u8 buf[32];
-    static u8* writ;
-    writ = buf;
+    u8 buf[64];
+    u8* writ = buf;
 
     u64 m = u, p = 1;
     while (m / 10) m /= 10, p *= 10;
     while (p) *writ++ = '0' + (u / p % 10), p /= 10;
 
-    write(1, buf, writ - buf);
+    _write(1, buf, writ - buf);
 }
 
 void _printf64(double d) {
-    static u8 buf[64];
-    static u8* writ;
-    writ = buf;
+    u8 buf[64];
+    u8* writ = buf;
 
     u64 u = (u64)d; // before decimal point
     u64 m = u, p = 1;
@@ -571,7 +620,7 @@ void _printf64(double d) {
     }
     if (isZero) *writ++ = '0';
 
-    write(1, buf, writ - buf);
+    _write(1, buf, writ - buf);
 }
 
 i64 prev = 0;
@@ -584,12 +633,12 @@ void _printstr(void* str) {
     //     _printf64((n - prev) / 1000000000.0);
     //     prev = n;
     // }
-    write(1, (u8*)str + 8, _strlen(str));
+    _write(1, (u8*)str + 8, _strlen(str));
 }
 
 void _printbool(i8 b) {
-    if (b) write(1, "true", 4);
-    else write(1, "false", 5);
+    if (b) _write(1, "true", 4);
+    else _write(1, "false", 5);
 }
 
 /* * * * * * * * * * * * *
@@ -598,6 +647,3 @@ void _printbool(i8 b) {
  *                       *
  * * * * * * * * * * * * */
 
-u64 _now() {
-    return now();
-}

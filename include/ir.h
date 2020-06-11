@@ -60,6 +60,7 @@ namespace basil {
         Location(i64 imm);
         Location(Register reg_in, const Type* type_in);
         Location(Register reg_in, i64 offset, const Type* type_in);
+        Location(Register reg_in, const ustring& offset, const Type* type_in);
         Location(Segment segm_in, i64 offset, const Type* type_in);
         Location(const Type* type_in, const ustring& name_in);
         Location(const Type* type_in, Data* imm, const ustring& name_in);

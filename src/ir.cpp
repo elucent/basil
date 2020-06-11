@@ -1457,7 +1457,12 @@ namespace basil {
 
     void movex86(buffer& text, buffer& data, Location* src, Location* dst) {
         if (!*dst || !*src) return;
-        x64::printer::mov(text, data, src, dst);
+
+        if (src->imm && shouldAlloca(src->type)) {
+            // pointer type
+            x64::printer::lea(text, data, src, dst);
+        }
+        else x64::printer::mov(text, data, src, dst);
     }
 
     void retWord(buffer& text, buffer& data, bool closeFrame) {
@@ -1561,14 +1566,15 @@ namespace basil {
         x64::printer::text(text, data);
         prelude(text, data);
         for (Function* f : functions) f->emitX86(text, data);
+        x64::printer::label(text, data, x64::TEXT, "start", true);
         x64::printer::label(text, data, x64::TEXT, "_start", true);
+        x64::printer::label(text, data, x64::TEXT, "_main", true);
         
         Location rax(RAX, I64);
         Location rdi(RDI, I64);
         Location rbp(RBP, I64);
         Location rsp(RSP, I64);
         Location frame(size());
-        Location exit(60);
         Location code(0);
         Location eightMB(IMMEDIATE, 8388608, I64);
 
@@ -1576,9 +1582,8 @@ namespace basil {
         if (size() > 0) x64::printer::sub(text, data, &frame, &rsp);
         
         for (Insn* i : insns) i->emitX86(text, data);
-        x64::printer::mov(text, data, &exit, &rax);
         x64::printer::mov(text, data, &code, &rdi);
-        x64::printer::syscall(text, data);
+        x64::printer::call(text, data, "_exit");
     }
 
     void Insn::emitX86(buffer& text, buffer& data) {
@@ -1616,7 +1621,7 @@ namespace basil {
     }
 
     void StrData::emitX86Arg(buffer& text) {
-        fprint(text, "$", _label);
+        fprint(text, _label, "(%rip)");
     }
 
     void BoolData::emitX86Const(buffer& text, buffer& data) {
@@ -1965,11 +1970,11 @@ namespace basil {
             if (_args[i]->type->is<NumericType>() && 
                 _args[i]->type->as<NumericType>()->floating()) {
                 fpargs[i].type = _args[i]->type;
-                x64::printer::mov(text, data, _args[i], &fpargs[i]);
+                movex86(text, data, _args[i], &fpargs[i]);
             }
             else {
                 args[i].type = _args[i]->type;
-                x64::printer::mov(text, data, _args[i], &args[i]);
+                movex86(text, data, _args[i], &args[i]);
             }
         }
         x64::printer::call(text, data, _func);

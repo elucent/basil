@@ -7,7 +7,8 @@ bool exists(const char* path) {
     else return fclose(f), true;
 }
 
-file::file(const char* fname): file(fopen(fname, "a+")) {
+file::file(const char* fname, const char* flags): 
+    file(fopen(fname, flags)) {
     //
 }
 

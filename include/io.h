@@ -19,7 +19,7 @@ class file : public stream {
     FILE* f;
     bool done;
 public:
-    file(const char* fname);
+    file(const char* fname, const char* flags);
     file(FILE* f_in);
     ~file();
     file(const file& other) = delete;
