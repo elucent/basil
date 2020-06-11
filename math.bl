@@ -1,12 +1,1 @@
-
-# some math functions
-
-squared x -> x * x
-cubed x -> x * x * x
-negative x -> -x
-
-# some constants
-
-zero = 0
-one = 1
-pi = 3.14159
+1 + 2

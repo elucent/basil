@@ -345,7 +345,7 @@ namespace basil {
                 }
                 indent(text);
                 printSized(text, "lea", typeSize(dst->type));
-                fprint(text, " ", label, ", ");
+                fprint(text, " ", label, "(%rip), ");
                 printArg(text, target);
                 fprintln(text, "");
                 if (target != dst) mov(text, data, target, dst);

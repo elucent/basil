@@ -8,9 +8,16 @@ namespace basil {
     }
 
     void Source::checkNewline() {
-        u32 i = lines.size() - 1;
-        while (lines[i].size() == 0) -- i;
-        if (lines[i][lines[i].size() - 1] != '\n') add('\n');
+        if (lines.size() == 0) {
+            lines.push("\n");
+            return;
+        }
+        i64 i = lines.size() - 1;
+        while (i > 0 && lines[i].size() == 0) -- i;
+        if (lines[i].size() == 0) {
+            lines[i] += '\n';
+        }
+        else if (lines[i][lines[i].size() - 1] != '\n') add('\n');
     }
 
     Source::Source() {
@@ -19,7 +26,7 @@ namespace basil {
 
     Source::Source(const char* path) {
         lines.push("");
-        file f(path);
+        file f(path, "r");
         load(f);
     }
 
