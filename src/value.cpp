@@ -655,6 +655,10 @@ namespace basil {
         e.visit(this);
     }
 
+    bool Value::pure(Stack& ctx) const {
+        return true;
+    }
+
     // Builtin
 
     const ValueClass Builtin::CLASS(Value::CLASS);
@@ -834,7 +838,7 @@ namespace basil {
     }
 
     void StringConstant::repr(stream& io) const {
-        print(io, '"', _value, '"');
+        print(io, '"', escape(_value), '"');
     }
 
     // CharConstant
@@ -1070,6 +1074,12 @@ namespace basil {
         print(io, _name);
     }
 
+    bool Variable::pure(Stack& ctx) const {
+        auto e = entry(ctx);
+        if (!e) return false;
+        return !e->reassigned();
+    }
+
     // Interaction
 
     const ValueClass Interaction::CLASS(Value::CLASS);
@@ -1165,6 +1175,11 @@ namespace basil {
         for (Value* v : _children) v->explore(e);
     }
 
+    bool Sequence::pure(Stack& ctx) const {
+        for (Value* v : _children) if (!v->pure(ctx)) return false;
+        return true;
+    }
+
     // Program
     
     const ValueClass Program::CLASS(Value::CLASS);
@@ -1230,6 +1245,11 @@ namespace basil {
     void Program::explore(Explorer& e) {
         e.visit(this);
         for (Value* v : _children) v->explore(e);
+    }
+
+    bool Program::pure(Stack& ctx) const {
+        for (Value* v : _children) if (!v->pure(ctx)) return false;
+        return true;
     }
 
     // Lambda
@@ -1582,7 +1602,6 @@ namespace basil {
         Define* arg = new Define(new TypeConstant(at, 0, 0), name);
         Stack* p = l->self()->parent();
         n->apply(*p, arg);
-        assign(*n->scope(), n->match(), a);
         n->apply(*p, l->body()->clone(*p));
         n->complete(callctx);
         l->instantiate(at, n);
@@ -1716,6 +1735,47 @@ namespace basil {
         if (_arg) _arg->explore(e);
     }
 
+    bool Call::pure(Stack& ctx) const {
+        if (!_func->pure(ctx)) return false;
+
+        Lambda* l = nullptr;
+        if (inst) {
+            l = inst->as<Lambda>();
+        }
+        else {
+            Meta m = _func->fold(ctx);
+            if (m.isFunction()) {
+                l = caseFor(ctx, m.asFunction().value(), _arg);
+            }
+            else if (m.isIntersect()) {
+                m = m.asIntersect().as(desiredfn);
+                if (!m.isFunction()) {
+                    err(PHASE_TYPE, line(), column(),
+                        "Called object '", _func, "' does not have function type.");
+                    return ERROR;
+                }
+                if (!m.type()->as<FunctionType>()->total()) {
+                    err(PHASE_TYPE, line(), column(),
+                        "Cannot call ", m.type(), " case of ", _func->type(ctx), 
+                        " intersect; cases are not total.");
+                    return ERROR;
+                }
+                l = caseFor(ctx, m.asFunction().value(), _arg);
+            }
+            else {
+                l = nullptr;
+            }
+        }
+
+        if (!l) return false;
+        
+        if (l->type(ctx)->as<FunctionType>()->arg() == ANY) {
+            l = instantiate(ctx, l, _arg);
+        }
+
+        return _arg->pure(ctx) && l->body()->pure(*l->scope());
+    }
+
     // BinaryOp
 
     const ValueClass BinaryOp::CLASS(Builtin::CLASS);
@@ -1776,6 +1836,11 @@ namespace basil {
         if (rhs) rhs->explore(e);
     }
 
+    bool BinaryOp::pure(Stack& ctx) const {
+        if (!lhs || !rhs) return true;
+        return lhs->pure(ctx) && rhs->pure(ctx);
+    }
+
     // UnaryOp
 
     const ValueClass UnaryOp::CLASS(Builtin::CLASS);
@@ -1823,6 +1888,11 @@ namespace basil {
     void UnaryOp::explore(Explorer& e) {
         e.visit(this);
         if (_operand) _operand->explore(e);
+    }
+
+    bool UnaryOp::pure(Stack& ctx) const {
+        if (!_operand) return true;
+        return _operand->pure(ctx);
     }
 
     // BinaryMath
@@ -2529,8 +2599,7 @@ namespace basil {
         if (!_type || !_dim) {
             if (v->type(ctx) == TYPE) {
                 _type = v;
-                Meta m = _type->fold(ctx);
-                if (!m.isType()) {
+                if (!_type->pure(ctx)) {
                     err(PHASE_TYPE, _type->line(), _type->column(),
                         "Cannot resolve array element type at compile ",
                         "time."
@@ -2538,12 +2607,12 @@ namespace basil {
                     setType(ERROR);
                     return this;
                 }
+                Meta m = _type->fold(ctx);
                 setType(_dim ? TYPE : find<FunctionType>(find<ArrayType>(ANY), TYPE));
             }
             else if (v->type(ctx)->is<ArrayType>()) {
                 _dim = v;
-                Meta m = _dim->fold(ctx);
-                if (!m.isArray()) {
+                if (!_dim->pure(ctx)) {
                     err(PHASE_TYPE, _dim->line(), _dim->column(),
                         "Cannot resolve array dimensions at compile ",
                         "time."
@@ -2551,6 +2620,7 @@ namespace basil {
                     setType(ERROR);
                     return this;
                 }
+                Meta m = _dim->fold(ctx);
                 MetaArray& a = m.asArray();
                 for (const Meta& m : a) {
                     if (!m.isInt()) {
@@ -2666,6 +2736,11 @@ namespace basil {
         return type(ctx)->as<ArrayType>()->element()->is<ReferenceType>();
     }
 
+    bool Array::pure(Stack& ctx) const {
+        for (Value* v : elts) if (!v->pure(ctx)) return false;
+        return true;
+    }
+
     // Index
 
     const ValueClass Index::CLASS(Builtin::CLASS);
@@ -2745,6 +2820,10 @@ namespace basil {
         return arr && idx;
     }
 
+    bool Index::pure(Stack& ctx) const {
+        return arr->pure(ctx) && idx->pure(ctx);
+    }
+
     // Range
 
     const ValueClass Range::CLASS(BinaryOp::CLASS);
@@ -2762,19 +2841,21 @@ namespace basil {
     Value* Range::apply(Stack& ctx, Value* arg) {
         if (!lhs) {
             lhs = arg;
+            if (!lhs->pure(ctx)) {
+                err(PHASE_TYPE, lhs->line(), lhs->column(),
+                    "Bounds of range expression must be constant.");
+            }
             setType(find<FunctionType>(I64, find<ArrayType>(I64)));
         }
         else if (!rhs) {
             rhs = arg;
-            Meta l = lhs->fold(ctx), r = rhs->fold(ctx);
-            if (l && r) { // size known at compile time
-                for (i64 i = l.asInt(); i <= r.asInt(); i ++)
-                    ctx.push(new IntegerConstant(i, line(), column()));
-            }
-            else {
-                err(PHASE_TYPE, line(), column(),
+            if (!rhs->pure(ctx)) {
+                err(PHASE_TYPE, rhs->line(), rhs->column(),
                     "Bounds of range expression must be constant.");
             }
+            Meta l = lhs->fold(ctx), r = rhs->fold(ctx);
+            for (i64 i = l.asInt(); i <= r.asInt(); i ++)
+                ctx.push(new IntegerConstant(i, line(), column()));
             delete this;
             return nullptr;
         }
@@ -2807,13 +2888,13 @@ namespace basil {
             setType(find<FunctionType>(I64, ANY));
         }
         else if (!rhs) {
-            Meta m = arg->fold(ctx);
-            if (!m.isInt()) {
+            if (!arg->pure(ctx)) {
                 err(PHASE_TYPE, arg->line(), arg->column(),
                     "Number of repetitions must be constant integer.");
                 delete this;
                 return nullptr;
             }
+            Meta m = arg->fold(ctx);
             for (int i = 0; i < m.asInt(); i ++) {
                 ctx.push(lhs->clone(ctx));
             }
@@ -3422,6 +3503,11 @@ namespace basil {
         else print(io, "(if ", cond, ": ", body, ")");
     }
 
+    bool If::pure(Stack& ctx) const {
+        if (!cond || !body) return true;
+        return cond->pure(ctx) && body->pure(ctx);
+    }
+
     // While
 
     const ValueClass While::CLASS(Builtin::CLASS);
@@ -3490,6 +3576,11 @@ namespace basil {
         body->gen(ctx, gen, frame);
         frame.add(new GotoInsn(start));
         frame.add(new Label(end, false));
+    }
+
+    bool While::pure(Stack& ctx) const {
+        if (!cond || !body) return true;
+        return false;
     }
 
     // Define
@@ -3722,6 +3813,10 @@ namespace basil {
         return Meta(VOID);
     }
 
+    bool Autodefine::pure(Stack& ctx) const {
+        return !_init || _init->pure(ctx);
+    }
+
     // Assign
 
     const ValueClass Assign::CLASS(Builtin::CLASS);
@@ -3752,13 +3847,11 @@ namespace basil {
         else if (dst->is<Variable>() || dst->is<Define>()) {
             if (auto val = src->entry(ctx)) {
                 auto entry = dst->entry(ctx);
-                if (dst->is<Variable>()) entry->reassign();
                 if (val->builtin()) entry->builtin() = val->builtin();
                 if (val->value()) entry->value() = val->value();
             }
             else if (src->fold(ctx)) {
                 auto entry = dst->entry(ctx);
-                if (dst->is<Variable>()) entry->reassign();
                 entry->value() = src->fold(ctx);
             }
         }
@@ -3816,6 +3909,9 @@ namespace basil {
                 rhs = nullptr;
                 delete this;
                 return def;
+            }
+            if (!lhs->is<Define>() && lhs->entry(ctx)) {
+                lhs->entry(ctx)->reassign();
             }
 
             const Type* dstt = lhs->type(ctx);
@@ -3883,6 +3979,10 @@ namespace basil {
         return Meta(VOID);
     }
 
+    bool Assign::pure(Stack& ctx) const {
+        return !lhs || !rhs || (lhs->is<Define>() && rhs->pure(ctx));
+    }
+
     // Print
 
     const Type* Print::_BASE_TYPE;
@@ -3937,6 +4037,11 @@ namespace basil {
         }
         else println(_stdout, m);
         return Meta(VOID);
+    }
+    
+    bool Print::pure(Stack& ctx) const {
+        if (!_operand) return true;
+        return false;
     }
 
     // Typeof
@@ -4061,6 +4166,10 @@ namespace basil {
             && !_dst->is<ReferenceType>();
     }
 
+    bool Cast::pure(Stack& ctx) const {
+        return _src->pure(ctx);
+    }
+
     // Eval
 
     const ValueClass Eval::CLASS(Builtin::CLASS);
@@ -4161,6 +4270,10 @@ namespace basil {
 
     Meta MetaEval::fold(Stack& ctx) {
         return val;
+    }
+
+    bool MetaEval::pure(Stack& ctx) const {
+        return true;
     }
 
     // Use

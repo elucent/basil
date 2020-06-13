@@ -199,6 +199,7 @@ namespace basil {
             insns.back()->liveout(frame, empty);
 
         for (i64 i = i64(insns.size()) - 2; i >= 0; i --) {
+            auto ptr = insns[i];
             if (insns[i]->liveout(frame, insns[i + 1]->inset()))
                 todo.push(i);
         }
@@ -1238,8 +1239,8 @@ namespace basil {
 
     Location* CallInsn::lazyValue(CodeGenerator& gen, 
                                 CodeFrame& frame) {
-        if (_func->type->as<FunctionType>()->ret() == VOID) return frame.none();
         _home = &frame;
+        if (_func->type->as<FunctionType>()->ret() == VOID) return frame.none();
         return frame.stack(_func->type->as<FunctionType>()->ret());
     }
 
@@ -1269,6 +1270,7 @@ namespace basil {
     
     Location* CCallInsn::lazyValue(CodeGenerator& gen,
                                    CodeFrame& frame) {
+        _home = &frame;
         if (_ret == VOID) return frame.none();
         return frame.stack(_ret);
     }
@@ -1277,7 +1279,7 @@ namespace basil {
 
     CCallInsn::CCallInsn(const vector<Location*>& args, const ustring& func, 
                          const Type* ret, const InsnClass* ic):
-        Insn(ic), _args(args), _func(func), _ret(ret) {
+        Insn(ic), _args(args), _func(func), _ret(ret), _home(nullptr) {
         //
     }
 
@@ -1608,7 +1610,7 @@ namespace basil {
     }
 
     void FloatData::emitX86Arg(buffer& text) {
-        fprint(text, constants[_value]->name);
+        fprint(text, constants[_value]->name, "(%rip)");
     }
 
     void StrData::emitX86Const(buffer& text, buffer& data) {
@@ -1814,8 +1816,8 @@ namespace basil {
         Location xmm0(XMM0, _operand->type);
         if (_operand->type->is<NumericType>() &&
             _operand->type->as<NumericType>()->floating())
-            x64::printer::mov(text, data, _operand, &xmm0);
-        else x64::printer::mov(text, data, _operand, &rax);
+            movex86(text, data, _operand, &xmm0);
+        else movex86(text, data, _operand, &rax);
     }
     
     void CastInsn::emitX86(buffer& text, buffer& data) {
@@ -1963,7 +1965,9 @@ namespace basil {
         }
 
         for (u32 i = 0; i < saved.size(); i ++) {
-            x64::printer::push(text, data, saved[i]);
+            Location* backup = _home->backup(i);
+            backup->type = saved[i]->type;
+            movex86(text, data, saved[i], backup);
         }
 
         for (u32 i = 0; i < _args.size(); i ++) {
@@ -1986,7 +1990,9 @@ namespace basil {
         }
 
         for (i64 i = i64(saved.size()) - 1; i >= 0; i --) {
-            x64::printer::pop(text, data, saved[i]);
+            Location* backup = _home->backup(i);
+            backup->type = saved[i]->type;
+            movex86(text, data, backup, saved[i]);
         }
     }
 

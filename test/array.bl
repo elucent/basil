@@ -1,0 +1,8 @@
+println n ->
+    print n
+    print "\n"
+
+arr = [1 2 3 4]
+
+arr[0] println
+arr[3] println

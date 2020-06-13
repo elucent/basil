@@ -7,7 +7,7 @@ f() ->
         a = b
         b = t
         i = i + 1
-    "hello"
+    a
 
 j = 0
 while j < 1000:

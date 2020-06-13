@@ -206,6 +206,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         else if (level == AST && !silent) for (Value* v : s) println(_stdout, v);
+        for (Value* v : s) v->pure(program->scope());
     }
     
     if (level >= IR) {

@@ -149,6 +149,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const = 0;
         virtual void repr(stream& io) const = 0;
         virtual void explore(Explorer& e);
+        virtual bool pure(Stack& ctx) const;
 
         template<typename T>
         bool is() const {
@@ -321,6 +322,7 @@ namespace basil {
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Interaction : public Value {
@@ -354,6 +356,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Program : public Value {
@@ -374,6 +377,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Quote : public Builtin {
@@ -459,6 +463,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class BinaryOp : public Builtin {
@@ -480,6 +485,7 @@ namespace basil {
         virtual bool canApply(Stack& ctx, Value* arg) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class UnaryOp : public Builtin {
@@ -499,6 +505,7 @@ namespace basil {
         virtual bool canApply(Stack& ctx, Value* arg) const override;
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class BinaryMath : public BinaryOp {
@@ -739,6 +746,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual bool lvalue(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Index : public Builtin {
@@ -755,6 +763,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual bool lvalue(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Range : public BinaryOp {
@@ -848,34 +857,7 @@ namespace basil {
         virtual void format(stream& io, u32 level = 0) const override;
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
-    };
-
-    class Elif : public Builtin {
-        Value *cond, *body;
-    public:
-        static const ValueClass CLASS;
-        Elif(u32 line, u32 column, const ValueClass* vc = &CLASS);
-        ~Elif();
-
-        virtual Meta fold(Stack& ctx) override;
-        virtual Value* apply(Stack& ctx, Value* arg) override;
-        virtual void format(stream& io, u32 level = 0) const override;
-        virtual Value* clone(Stack& ctx) const override;
-        virtual void repr(stream& io) const override;
-    };
-
-    class Else : public Builtin {
-        Value *cond, *body;
-    public:
-        static const ValueClass CLASS;
-        Else(u32 line, u32 column, const ValueClass* vc = &CLASS);
-        ~Else();
-
-        virtual Meta fold(Stack& ctx) override;
-        virtual Value* apply(Stack& ctx, Value* arg) override;
-        virtual void format(stream& io, u32 level = 0) const override;
-        virtual Value* clone(Stack& ctx) const override;
-        virtual void repr(stream& io) const override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class While : public Builtin {
@@ -891,6 +873,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Define : public Builtin {
@@ -937,6 +920,7 @@ namespace basil {
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
         virtual Meta fold(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Assign : public Builtin {
@@ -955,6 +939,7 @@ namespace basil {
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
         virtual Meta fold(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Print : public UnaryOp {
@@ -968,6 +953,7 @@ namespace basil {
         virtual Location* gen(Stack& ctx, CodeGenerator& gen, CodeFrame& frame) override;
         virtual Value* clone(Stack& ctx) const override;
         virtual Meta fold(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Typeof : public UnaryOp {
@@ -995,6 +981,7 @@ namespace basil {
         virtual void repr(stream& io) const override;
         virtual void explore(Explorer& e) override;
         virtual bool lvalue(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     }; 
     
 
@@ -1022,6 +1009,7 @@ namespace basil {
         virtual Value* clone(Stack& ctx) const override;
         virtual void repr(stream& io) const override;
         virtual Meta fold(Stack& ctx) override;
+        virtual bool pure(Stack& ctx) const override;
     };
 
     class Use : public Builtin {

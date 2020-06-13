@@ -597,6 +597,7 @@ namespace basil {
         vector<Location*> _args;
         ustring _func;
         const Type* _ret;
+        CodeFrame* _home;
     protected:
         virtual Location* lazyValue(CodeGenerator& gen,
                                    CodeFrame& frame) override;
